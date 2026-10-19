@@ -41,8 +41,8 @@ The cache key changes only with the OS, architecture, compiler, `setup-ocaml`
 version, the inputs below (except `opam-disable-sandboxing`) and the `*.opam`
 files. A Makefile edit reuses the switch.
 
-On Windows, `tar` cannot restore the Cygwin symlinks, so the action always runs
-`setup-ocaml` (with its own cache) and the install.
+Windows is cached like the other OSes. Call the action once per job: on
+Windows, a second restore onto an already populated tree fails.
 
 | Input | Default | Meaning |
 | --- | --- | --- |

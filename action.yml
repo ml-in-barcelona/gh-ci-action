@@ -66,18 +66,24 @@ runs:
         echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
         echo "key=$PREFIX${digest%% *}" >> "$GITHUB_OUTPUT"
 
-    # Windows restores fail: tar cannot recreate the Cygwin symlinks. There,
-    # setup-ocaml's own cache does the job and install always runs.
+    # Same as setup-ocaml before its own restore: without it, the Cygwin
+    # symlinks in the cache do not resolve. A restore onto an already
+    # populated tree fails on Windows, so call this action once per job.
+    - name: Allow symlink evaluation
+      if: runner.os == 'Windows'
+      shell: bash
+      run: fsutil behavior set symlinkEvaluation R2L:1 R2R:1
+
     - name: Load opam cache
       id: restore
-      if: runner.os != 'Windows'
       uses: actions/cache/restore@v4
       with:
         path: |
           ${{ runner.tool_cache }}/opam
           ~/.opam
+          C:\.opam
           _opam
-          .opam-path
+          .opam-dir
         key: ${{ steps.key.outputs.key }}
         restore-keys: ${{ steps.key.outputs.prefix }}
 
@@ -88,10 +94,14 @@ runs:
         ocaml-compiler: ${{ inputs.ocaml-compiler }}
         opam-disable-sandboxing: ${{ inputs.opam-disable-sandboxing }}
 
-    - name: Get opam executable path
-      if: runner.os != 'Windows' && steps.restore.outputs.cache-matched-key == ''
+    # The cache holds no PATH, so a restoring run needs to know where opam
+    # lives. On Windows the runner reads GITHUB_PATH, so it needs that form.
+    - name: Record opam directory
+      if: steps.restore.outputs.cache-matched-key == ''
       shell: bash
-      run: command -v opam > .opam-path
+      run: |
+        dir="$(dirname "$(command -v opam)")"
+        if [[ "$RUNNER_OS" == "Windows" ]]; then cygpath -w "$dir" > .opam-dir; else echo "$dir" > .opam-dir; fi
 
     - name: Use cached opam environment
       if: steps.restore.outputs.cache-matched-key != ''
@@ -108,11 +118,21 @@ runs:
         echo "OPAMSOLVERTIMEOUT=600"               >> "$GITHUB_ENV"
         echo "OPAMYES=1"                           >> "$GITHUB_ENV"
         echo "CLICOLOR_FORCE=1"                    >> "$GITHUB_ENV"
-        echo "OPAMROOT=$HOME/.opam"                >> "$GITHUB_ENV"
 
-        OPAM_PATH="$(cat .opam-path)"
-        chmod +x "$OPAM_PATH"
-        dirname "$OPAM_PATH" >> "$GITHUB_PATH"
+        OPAM_DIR="$(cat .opam-dir)"
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          echo "HOME=$USERPROFILE"                           >> "$GITHUB_ENV"
+          echo 'OPAMROOT=C:\.opam'                           >> "$GITHUB_ENV"
+          echo 'BASH_ENV=C:\.opam\.cygwin\root\bash_env'     >> "$GITHUB_ENV"
+          echo "MSYS=winsymlinks:native"                     >> "$GITHUB_ENV"
+          echo "CYGWIN=winsymlinks:native"                   >> "$GITHUB_ENV"
+          echo "$OPAM_DIR"                                   >> "$GITHUB_PATH"
+          echo 'C:\.opam\.cygwin\root\bin'                   >> "$GITHUB_PATH"
+        else
+          echo "OPAMROOT=$HOME/.opam"                        >> "$GITHUB_ENV"
+          chmod +x "$OPAM_DIR/opam"
+          echo "$OPAM_DIR"                                   >> "$GITHUB_PATH"
+        fi
 
     - name: Install opam dependencies
       if: steps.restore.outputs.cache-hit != 'true'
@@ -141,12 +161,13 @@ runs:
         opam install . --deps-only "${flags[@]}" "${extras[@]}"
 
     - name: Save opam cache
-      if: runner.os != 'Windows' && steps.restore.outputs.cache-hit != 'true'
+      if: steps.restore.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4
       with:
         path: |
           ${{ runner.tool_cache }}/opam
           ~/.opam
+          C:\.opam
           _opam
-          .opam-path
+          .opam-dir
         key: ${{ steps.key.outputs.key }}
