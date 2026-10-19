@@ -31,18 +31,22 @@ steps:
 Gives you an opam switch with the dependencies of the `*.opam` files in the
 repository root.
 
-- On an exact cache hit, it restores the switch.
-- Otherwise it restores an older switch and runs `opam update`, or runs
-  `ocaml/setup-ocaml` when nothing matches. Then it runs `opam pin add` for
-  each pin and `opam install . --deps-only` with the flags below. It saves the
-  switch at once, so a failed build does not lose it.
+- Exact cache hit: restores the switch and installs the system packages its
+  opam packages need (`opam install --depext-only`), because a fresh VM does
+  not have them. On Linux it first runs `opam update --depexts`. This adds
+  about 20 s.
+- Otherwise: restores an older switch and runs `opam update`, or runs
+  `ocaml/setup-ocaml` when nothing matches. Then it pins, runs
+  `opam install . --deps-only`, runs `opam clean` and saves the switch at once,
+  so a failed build does not lose it.
 
-The cache key changes only with the OS, architecture, compiler, `setup-ocaml`
-version, the inputs below (except `opam-disable-sandboxing`) and the `*.opam`
-files. A Makefile edit reuses the switch.
+An older switch is restored only when OS, architecture, runner image name,
+compiler and `setup-ocaml` version match. The exact key also changes with the
+runner image version, the month, the other inputs and the hash of `*.opam`,
+`*.opam.locked` and `dune-project`. Opam sandboxing is always disabled.
 
-Windows is cached like the other OSes. Call the action once per job: on
-Windows, a second restore onto an already populated tree fails.
+A second call in the same job with the same compiler skips the restore,
+`setup-ocaml` and the save. Its `cache-hit` is `false`.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
@@ -52,20 +56,41 @@ Windows, a second restore onto an already populated tree fails.
 | `with-doc` | `false` | Adds `--with-doc`. |
 | `with-dev-setup` | `false` | Adds `--with-dev-setup`. |
 | `extra-packages` | empty | Space-separated packages to install too. |
-| `opam-disable-sandboxing` | `true` | Passed to `setup-ocaml`. |
 
-`pins` exists because opam-repository does not accept `pin-depends`. If a line
-does not have exactly two fields, the action fails and names that line. Pin to
-a commit (`url#sha`), so that a new commit gives a new key.
+`pins` exists because opam-repository does not accept `pin-depends`. Pin to a
+commit (`url#sha`), so that a new commit gives a new key. A line without
+exactly two fields fails the action.
 
-Outputs: `cache-hit`, `cache-matched-key`.
+Output: `cache-hit` (`true` when this call restored the exact key, else `false`).
+
+## Timings
+
+Duration of the `Setup` step in
+[run 39245144226](https://github.com/ml-in-barcelona/gh-ci-action/actions/runs/39245144226)
+(2026-10-19, commit `5087fce`):
+
+| OS | Cold | Prefix restore | Warm | Second call |
+| --- | --- | --- | --- | --- |
+| `ubuntu-latest` | 115 s | not measured | 45 s | 20 s |
+| `macos-latest` | 146 s | not measured | 30 s | 27 s |
+| `windows-latest` | 190 s | not measured | 46 s | 17 s |
+
+Cold means the action's cache has no entry, so the action runs `setup-ocaml`
+and installs the dependencies. `setup-ocaml` still found its own opam cache in
+this run, so a first run on a new repository can take longer. Prefix restore
+means an older switch restores and `opam update` refreshes it. Warm means an
+exact hit on a fresh runner. Second call is a later call in the same job.
+
+The fixture in `test/fixture` has only `dune` as a dependency. A real project
+takes longer when cold. The `dune-cache` actions are not timed here: the
+fixture builds in about 1 s.
 
 ## dune-cache
 
 `dune-cache/load` restores the dune cache. It has no inputs. The key holds the
 OS, architecture, `ocamlc -version` and the commit. It sets
 `DUNE_CACHE=enabled`, `DUNE_CACHE_STORAGE_MODE=copy` and `DUNE_CACHE_ROOT`
-(`~/.cache/dune`, or `%LOCALAPPDATA%\dune` on Windows). Output: `cache-hit`.
+(`dune` in the runner temp directory). Output: `cache-hit`.
 
 `dune-cache/save` saves the cache. Composite actions cannot run a step at job
 end, so add this step yourself. Use `if: ${{ !cancelled() }}` to save the cache

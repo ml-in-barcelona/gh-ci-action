@@ -9,41 +9,26 @@ outputs:
 runs:
   using: composite
   steps:
-    # dune would pick a different default root per OS; one explicit path keeps
-    # the cached path and the trimmed path identical.
-    # The compiler version comes from the switch, so matrix jobs on the same OS
-    # keep separate caches without the caller passing it.
-    - name: Choose dune cache root and key
+    - name: Enable dune cache
       id: root
       shell: bash
       run: |
-        if [[ "$RUNNER_OS" == "Windows" ]]; then
-          root="$LOCALAPPDATA\\dune"
-        else
-          root="$HOME/.cache/dune"
-        fi
-        if command -v opam > /dev/null; then
-          ocaml="$(opam exec -- ocamlc -version | tr -d '\r')"
-        else
-          ocaml="$(ocamlc -version | tr -d '\r')"
-        fi
+        ocaml="$(opam exec -- ocamlc -version | tr -d '\r')"
         prefix="dune-$RUNNER_OS-$RUNNER_ARCH-$ocaml-"
-        echo "path=$root"                        >> "$GITHUB_OUTPUT"
         echo "prefix=$prefix"                    >> "$GITHUB_OUTPUT"
         echo "DUNE_CACHE=enabled"                >> "$GITHUB_ENV"
         echo "DUNE_CACHE_STORAGE_MODE=copy"      >> "$GITHUB_ENV"
-        echo "DUNE_CACHE_ROOT=$root"             >> "$GITHUB_ENV"
+        echo "DUNE_CACHE_ROOT=$RUNNER_TEMP/dune" >> "$GITHUB_ENV"
         echo "DUNE_CACHE_KEY=$prefix$GITHUB_SHA" >> "$GITHUB_ENV"
 
     - name: Load dune cache
       id: restore
       uses: actions/cache/restore@v4
       with:
-        path: ${{ steps.root.outputs.path }}
+        path: ${{ env.DUNE_CACHE_ROOT }}
         key: ${{ env.DUNE_CACHE_KEY }}
         restore-keys: ${{ steps.root.outputs.prefix }}
 
-    # The save action compares against this size.
     - name: Measure dune cache
       shell: bash
       run: |
