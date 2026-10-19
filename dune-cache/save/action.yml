@@ -1,5 +1,5 @@
 name: Dune cache save
-description: Trim the dune cache and save it when it grew. Run after dune-cache and the build steps.
+description: Trim the dune cache and save it when it grew. Run after dune-cache/load and the build steps.
 
 inputs:
   max-size:

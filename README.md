@@ -18,9 +18,7 @@ steps:
       with-dev-setup: true
       extra-packages: dune-release odoc-driver
 
-  - uses: ml-in-barcelona/gh-ci-action/dune-cache@v1
-    with:
-      ocaml-compiler: ${{ matrix.ocaml-compiler }}
+  - uses: ml-in-barcelona/gh-ci-action/dune-cache/load@v1
 
   - run: make test
 
@@ -74,11 +72,8 @@ Root action:
 
 Outputs: `cache-hit`, `cache-matched-key`.
 
-`dune-cache`:
-
-| Input | Default | Meaning |
-| --- | --- | --- |
-| `ocaml-compiler` | required | Part of the key. |
+`dune-cache/load`: no inputs. The key holds the OS, architecture, the
+`ocamlc -version` of the current switch, and the commit.
 
 Output: `cache-hit`. Sets `DUNE_CACHE=enabled`, `DUNE_CACHE_STORAGE_MODE=copy`
 and `DUNE_CACHE_ROOT` (`~/.cache/dune`, or `%LOCALAPPDATA%\dune` on Windows).

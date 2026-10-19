@@ -41,9 +41,7 @@ jobs:
             ochre https://github.com/davesnx/ochre.git#f367ec7b372e20fddabc065201cf696564361abe
 
       - name: Dune cache
-        uses: ./.action/dune-cache
-        with:
-          ocaml-compiler: 5.4.0
+        uses: ./.action/dune-cache/load
 
       - name: Build and test
         run: opam exec -- dune build @runtest

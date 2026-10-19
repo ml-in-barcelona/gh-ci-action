@@ -1,10 +1,5 @@
-name: Dune cache
+name: Dune cache load
 description: Restore the dune cache and enable it for later steps. Pair with dune-cache/save.
-
-inputs:
-  ocaml-compiler:
-    description: OCaml compiler version, part of the cache key.
-    required: true
 
 outputs:
   cache-hit:
@@ -16,7 +11,9 @@ runs:
   steps:
     # dune would pick a different default root per OS; one explicit path keeps
     # the cached path and the trimmed path identical.
-    - name: Choose dune cache root
+    # The compiler version comes from the switch, so matrix jobs on the same OS
+    # keep separate caches without the caller passing it.
+    - name: Choose dune cache root and key
       id: root
       shell: bash
       run: |
@@ -25,19 +22,26 @@ runs:
         else
           root="$HOME/.cache/dune"
         fi
-        echo "path=$root" >> "$GITHUB_OUTPUT"
-        echo "DUNE_CACHE=enabled"           >> "$GITHUB_ENV"
-        echo "DUNE_CACHE_STORAGE_MODE=copy" >> "$GITHUB_ENV"
-        echo "DUNE_CACHE_ROOT=$root"        >> "$GITHUB_ENV"
-        echo "DUNE_CACHE_KEY=dune-${{ runner.os }}-${{ runner.arch }}-${{ inputs.ocaml-compiler }}-${{ github.sha }}" >> "$GITHUB_ENV"
+        if command -v opam > /dev/null; then
+          ocaml="$(opam exec -- ocamlc -version | tr -d '\r')"
+        else
+          ocaml="$(ocamlc -version | tr -d '\r')"
+        fi
+        prefix="dune-$RUNNER_OS-$RUNNER_ARCH-$ocaml-"
+        echo "path=$root"                        >> "$GITHUB_OUTPUT"
+        echo "prefix=$prefix"                    >> "$GITHUB_OUTPUT"
+        echo "DUNE_CACHE=enabled"                >> "$GITHUB_ENV"
+        echo "DUNE_CACHE_STORAGE_MODE=copy"      >> "$GITHUB_ENV"
+        echo "DUNE_CACHE_ROOT=$root"             >> "$GITHUB_ENV"
+        echo "DUNE_CACHE_KEY=$prefix$GITHUB_SHA" >> "$GITHUB_ENV"
 
     - name: Load dune cache
       id: restore
       uses: actions/cache/restore@v4
       with:
         path: ${{ steps.root.outputs.path }}
-        key: dune-${{ runner.os }}-${{ runner.arch }}-${{ inputs.ocaml-compiler }}-${{ github.sha }}
-        restore-keys: dune-${{ runner.os }}-${{ runner.arch }}-${{ inputs.ocaml-compiler }}-
+        key: ${{ env.DUNE_CACHE_KEY }}
+        restore-keys: ${{ steps.root.outputs.prefix }}
 
     # The save action compares against this size.
     - name: Measure dune cache
