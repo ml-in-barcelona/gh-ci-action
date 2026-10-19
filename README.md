@@ -90,7 +90,7 @@ fixture builds in about 1 s.
 `dune-cache/load` restores the dune cache. It has no inputs. The key holds the
 OS, architecture, `ocamlc -version` and the commit. It sets
 `DUNE_CACHE=enabled`, `DUNE_CACHE_STORAGE_MODE=copy` and `DUNE_CACHE_ROOT`
-(`~/.cache/dune`, or `%LOCALAPPDATA%\dune` on Windows). Output: `cache-hit`.
+(`dune` in the runner temp directory). Output: `cache-hit`.
 
 `dune-cache/save` saves the cache. Composite actions cannot run a step at job
 end, so add this step yourself. Use `if: ${{ !cancelled() }}` to save the cache

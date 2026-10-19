@@ -35,34 +35,26 @@ runs:
       shell: bash
       env:
         PINS: ${{ inputs.pins }}
-        WITH_TEST: ${{ inputs.with-test }}
-        WITH_DOC: ${{ inputs.with-doc }}
-        WITH_DEV_SETUP: ${{ inputs.with-dev-setup }}
-        EXTRAS: ${{ inputs.extra-packages }}
+        OPTS: >-
+          ${{ inputs.with-test == 'true' && '--with-test' || '' }}
+          ${{ inputs.with-doc == 'true' && '--with-doc' || '' }}
+          ${{ inputs.with-dev-setup == 'true' && '--with-dev-setup' || '' }}
+          ${{ inputs.extra-packages }}
         COMPILER: ${{ inputs.ocaml-compiler }}
         OPAM_FILES_HASH: ${{ hashFiles('*.opam', '*.opam.locked', 'dune-project') }}
       run: |
-        while read -r name url extra; do
-          if [[ -z "$name" ]]; then continue; fi
-          if [[ -z "$url" || -n "$extra" ]]; then
-            echo "::error::pins line must be '<name> <url>': $name $url $extra"
-            exit 1
-          fi
-        done <<< "$PINS"
-
         image="${ImageOS:-$(. /etc/os-release 2>/dev/null; echo "${ID:-}-${VERSION_ID:-}")}"
         # Keep the version equal to the `uses:` line below.
         prefix="opam-$RUNNER_OS-$RUNNER_ARCH-$image-$COMPILER-setup-ocaml-3.9.0-"
         if command -v sha256sum > /dev/null; then sha=(sha256sum); else sha=(shasum -a 256); fi
-        digest="$(printf '%s\n' "$PINS" "$WITH_TEST" "$WITH_DOC" "$WITH_DEV_SETUP" "$EXTRAS" "$OPAM_FILES_HASH" "${ImageVersion:-}" "$(date -u +%Y-%m)" | "${sha[@]}")"
+        digest="$(printf '%s\n' "$PINS" "$OPTS" "$OPAM_FILES_HASH" "${ImageVersion:-}" "$(date -u +%Y-%m)" | "${sha[@]}")"
         echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
         echo "key=$prefix${digest%% *}" >> "$GITHUB_OUTPUT"
-
-        if [[ "${GH_CI_OCAML_READY:-}" == "$COMPILER" ]]; then ready=true; else ready=false; fi
-        echo "setup-done=$ready" >> "$GITHUB_OUTPUT"
+        echo "opts=${OPTS//$'\n'/ }" >> "$GITHUB_OUTPUT"
+        if [[ "${GH_CI_OCAML_READY:-}" == "$COMPILER" ]]; then echo "again=true" >> "$GITHUB_OUTPUT"; fi
 
     - name: Allow native symlinks
-      if: runner.os == 'Windows' && steps.key.outputs.setup-done != 'true'
+      if: runner.os == 'Windows'
       shell: bash
       run: |
         fsutil behavior set symlinkEvaluation R2L:1 R2R:1
@@ -72,7 +64,7 @@ runs:
 
     - name: Load opam cache
       id: restore
-      if: steps.key.outputs.setup-done != 'true'
+      if: steps.key.outputs.again != 'true'
       uses: actions/cache/restore@v4
       with:
         path: |
@@ -80,23 +72,15 @@ runs:
           ~/.opam
           C:\.opam
           _opam
-          .opam-dir
         key: ${{ steps.key.outputs.key }}
         restore-keys: ${{ steps.key.outputs.prefix }}
 
     - name: Use OCaml ${{ inputs.ocaml-compiler }}
-      if: steps.restore.outputs.cache-matched-key == '' && steps.key.outputs.setup-done != 'true'
+      if: steps.key.outputs.again != 'true' && steps.restore.outputs.cache-matched-key == ''
       uses: ocaml/setup-ocaml@v3.9.0
       with:
         ocaml-compiler: ${{ inputs.ocaml-compiler }}
         opam-disable-sandboxing: true
-
-    - name: Record opam directory
-      if: steps.restore.outputs.cache-matched-key == '' && steps.key.outputs.setup-done != 'true'
-      shell: bash
-      run: |
-        dir="$(dirname "$(command -v opam)")"
-        if [[ "$RUNNER_OS" == "Windows" ]]; then cygpath -w "$dir" > .opam-dir; else echo "$dir" > .opam-dir; fi
 
     - name: Use cached opam environment
       if: steps.restore.outputs.cache-matched-key != ''
@@ -111,60 +95,54 @@ runs:
         echo "OPAMSOLVERTIMEOUT=600"               >> "$GITHUB_ENV"
         echo "OPAMYES=1"                           >> "$GITHUB_ENV"
 
-        cat .opam-dir >> "$GITHUB_PATH"
+        # setup-ocaml puts the opam binary in <tool cache>/opam/<version>/<arch>.
+        dir="$(ls -d "$RUNNER_TOOL_CACHE"/opam/*/*)"
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           echo 'OPAMROOT=C:\.opam'                       >> "$GITHUB_ENV"
           echo 'BASH_ENV=C:\.opam\.cygwin\root\bash_env' >> "$GITHUB_ENV"
+          cygpath -w "$dir"                              >> "$GITHUB_PATH"
           echo 'C:\.opam\.cygwin\root\bin'               >> "$GITHUB_PATH"
+        else
+          echo "$dir" >> "$GITHUB_PATH"
         fi
-
-    - name: Remember OCaml setup
-      shell: bash
-      env:
-        COMPILER: ${{ inputs.ocaml-compiler }}
-      run: echo "GH_CI_OCAML_READY=$COMPILER" >> "$GITHUB_ENV"
 
     - name: Install opam dependencies
       shell: bash
       env:
-        CACHE_HIT: ${{ steps.restore.outputs.cache-hit }}
+        COMPILER: ${{ inputs.ocaml-compiler }}
         PINS: ${{ inputs.pins }}
-        WITH_TEST: ${{ inputs.with-test }}
-        WITH_DOC: ${{ inputs.with-doc }}
-        WITH_DEV_SETUP: ${{ inputs.with-dev-setup }}
-        EXTRAS: ${{ inputs.extra-packages }}
-        STALE_RESTORE: ${{ steps.restore.outputs.cache-matched-key != '' }}
+        OPTS: ${{ steps.key.outputs.opts }}
+        AGAIN: ${{ steps.key.outputs.again }}
+        HIT: ${{ steps.restore.outputs.cache-hit }}
+        MATCHED: ${{ steps.restore.outputs.cache-matched-key }}
       run: |
-        flags=()
-        if [[ "$WITH_TEST" == "true" ]]; then flags+=(--with-test); fi
-        if [[ "$WITH_DOC" == "true" ]]; then flags+=(--with-doc); fi
-        if [[ "$WITH_DEV_SETUP" == "true" ]]; then flags+=(--with-dev-setup); fi
-        read -r -a extras <<< "$EXTRAS"
+        echo "GH_CI_OCAML_READY=$COMPILER" >> "$GITHUB_ENV"
+        read -r -a opts <<< "$OPTS"
 
-        if [[ "$CACHE_HIT" == "true" ]]; then
+        if [[ "$HIT" == "true" ]]; then
           # Empty apt lists on a fresh runner: opam only warns.
           if [[ "$RUNNER_OS" == "Linux" ]]; then opam update --depexts; fi
-          opam install . --deps-only --depext-only "${flags[@]}" "${extras[@]}"
+          opam install . --deps-only --depext-only "${opts[@]}"
           exit 0
         fi
 
-        while read -r name url _; do
+        while read -r name url extra; do
           if [[ -z "$name" ]]; then continue; fi
+          if [[ -z "$url" || -n "$extra" ]]; then
+            echo "::error::pins line must be '<name> <url>': $name $url $extra"
+            exit 1
+          fi
           opam pin add "$name" "$url" -yn
         done <<< "$PINS"
 
-        if [[ "$STALE_RESTORE" == "true" ]]; then opam update; fi
-
-        opam install . --deps-only "${flags[@]}" "${extras[@]}"
-
-    - name: Clean opam root
-      if: steps.restore.outputs.cache-hit != 'true' && steps.key.outputs.setup-done != 'true'
-      shell: bash
-      run: |
-        opam clean --all-switches --download-cache --logs --repo-cache --untracked --unused-repositories
+        if [[ -n "$MATCHED" ]]; then opam update; fi
+        opam install . --deps-only "${opts[@]}"
+        if [[ "$AGAIN" != "true" ]]; then
+          opam clean --all-switches --download-cache --logs --repo-cache --untracked --unused-repositories
+        fi
 
     - name: Save opam cache
-      if: steps.restore.outputs.cache-hit != 'true' && steps.key.outputs.setup-done != 'true'
+      if: steps.key.outputs.again != 'true' && steps.restore.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4
       with:
         path: |
@@ -172,5 +150,4 @@ runs:
           ~/.opam
           C:\.opam
           _opam
-          .opam-dir
         key: ${{ steps.key.outputs.key }}
