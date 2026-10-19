@@ -49,13 +49,13 @@ the hash of `*.opam`, `*.opam.locked` and `dune-project`. A Makefile edit reuses
 the switch. A new image version or a new period restores the old switch and
 refreshes it with `opam update`.
 
-On Windows the action does not use its own cache. It runs `setup-ocaml` (with
-its own cache) and the install, and `cache-hit` is `false`. Restoring `~/.opam`
-with `actions/cache` failed there, but only onto an existing `C:\.opam` tree.
-A restore on a fresh runner was not tried.
+On Windows the cache also holds `C:\.opam`, which contains setup-ocaml's
+Cygwin. The action sets the native-symlink options before the restore and
+exports `OPAMROOT`, `BASH_ENV` and the Cygwin `PATH` after it.
 
-If the same job calls the action again with the same compiler, it skips
-`setup-ocaml`, because the first call already exported its environment.
+If the same job calls the action again with the same compiler, the second call
+skips the restore, `setup-ocaml` and the save, because the first call already
+set up the environment. Its `cache-hit` is `false`.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
@@ -72,7 +72,8 @@ If the same job calls the action again with the same compiler, it skips
 does not have exactly two fields, the action fails and names that line. Pin to
 a commit (`url#sha`), so that a new commit gives a new key.
 
-Outputs: `cache-hit` (`true` or `false`), `cache-matched-key` (empty on a full miss).
+Outputs: `cache-hit` (`true` when this call restored the exact key, else `false`),
+`cache-matched-key` (empty on a full miss).
 
 ## dune-cache
 

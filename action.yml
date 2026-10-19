@@ -31,7 +31,7 @@ inputs:
 
 outputs:
   cache-hit:
-    description: "'true' when the exact opam cache key was restored, else 'false'. Always 'false' on Windows."
+    description: "'true' when this call restored the exact opam cache key, else 'false'. A second call in the same job skips the restore and reports 'false'."
     value: ${{ steps.restore.outputs.cache-hit == 'true' && 'true' || 'false' }}
   cache-matched-key:
     description: Key of the restored opam cache. Empty on a full miss.
@@ -97,17 +97,29 @@ runs:
         if [[ "${GH_CI_OCAML_READY:-}" == "$COMPILER" ]]; then ready=true; else ready=false; fi
         echo "setup-done=$ready" >> "$GITHUB_OUTPUT"
 
-    # Not on Windows: restores there failed, but only onto an existing
-    # C:\.opam tree. A restore on a fresh runner was never tried. setup-ocaml's
-    # own cache does the job there and the install always runs.
+    # The tar behind actions/cache creates symlinks as setup-ocaml does, so it
+    # needs the same settings before the restore. Without them, restores onto an
+    # existing C:\.opam failed with "Cannot create symlink".
+    - name: Allow native symlinks
+      if: runner.os == 'Windows' && steps.key.outputs.setup-done != 'true'
+      shell: bash
+      run: |
+        fsutil behavior set symlinkEvaluation R2L:1 R2R:1
+        echo "HOME=$USERPROFILE"         >> "$GITHUB_ENV"
+        echo "MSYS=winsymlinks:native"   >> "$GITHUB_ENV"
+        echo "CYGWIN=winsymlinks:native" >> "$GITHUB_ENV"
+
+    # A second call in the same job must not restore over the tree the first
+    # call set up. C:\.opam holds the opam root and its Cygwin.
     - name: Load opam cache
       id: restore
-      if: runner.os != 'Windows'
+      if: steps.key.outputs.setup-done != 'true'
       uses: actions/cache/restore@v4
       with:
         path: |
           ${{ runner.tool_cache }}/opam
           ~/.opam
+          C:\.opam
           _opam
           .opam-path
         key: ${{ steps.key.outputs.key }}
@@ -122,9 +134,13 @@ runs:
         opam-disable-sandboxing: ${{ inputs.opam-disable-sandboxing }}
 
     - name: Get opam executable path
-      if: runner.os != 'Windows' && steps.restore.outputs.cache-matched-key == ''
+      if: steps.restore.outputs.cache-matched-key == '' && steps.key.outputs.setup-done != 'true'
       shell: bash
-      run: command -v opam > .opam-path
+      run: |
+        opam_path="$(command -v opam)"
+        # GITHUB_PATH needs a native Windows path, not a Cygwin one.
+        if [[ "$RUNNER_OS" == "Windows" ]]; then opam_path="$(cygpath -w "$opam_path")"; fi
+        echo "$opam_path" > .opam-path
 
     - name: Use cached opam environment
       if: steps.restore.outputs.cache-matched-key != ''
@@ -142,11 +158,25 @@ runs:
         echo "OPAMSOLVERTIMEOUT=600"               >> "$GITHUB_ENV"
         echo "OPAMYES=1"                           >> "$GITHUB_ENV"
         echo "CLICOLOR_FORCE=1"                    >> "$GITHUB_ENV"
-        echo "OPAMROOT=$HOME/.opam"                >> "$GITHUB_ENV"
 
         OPAM_PATH="$(cat .opam-path)"
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          echo "OPAMROOT=C:\\.opam"                  >> "$GITHUB_ENV"
+          OPAM_PATH="$(cygpath -u "$OPAM_PATH")"
+        else
+          echo "OPAMROOT=$HOME/.opam"              >> "$GITHUB_ENV"
+        fi
         chmod +x "$OPAM_PATH"
-        dirname "$OPAM_PATH" >> "$GITHUB_PATH"
+        opam_dir="$(dirname "$OPAM_PATH")"
+        if [[ "$RUNNER_OS" == "Windows" ]]; then opam_dir="$(cygpath -w "$opam_dir")"; fi
+        echo "$opam_dir" >> "$GITHUB_PATH"
+
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          # setup-ocaml puts its Cygwin inside the opam root. The `shell: bash`
+          # steps and the OCaml binaries need it first on PATH.
+          echo "BASH_ENV=C:\\.opam\\.cygwin\\root\\bash_env" >> "$GITHUB_ENV"
+          echo "C:\\.opam\\.cygwin\\root\\bin" >> "$GITHUB_PATH"
+        fi
 
     - name: Remember OCaml setup
       shell: bash
@@ -194,18 +224,19 @@ runs:
 
     # Same cleanup as setup-ocaml before its own save: smaller cache.
     - name: Clean opam root
-      if: runner.os != 'Windows' && steps.restore.outputs.cache-hit != 'true'
+      if: steps.restore.outputs.cache-hit != 'true' && steps.key.outputs.setup-done != 'true'
       shell: bash
       run: |
         opam clean --all-switches --download-cache --logs --repo-cache --untracked --unused-repositories
 
     - name: Save opam cache
-      if: runner.os != 'Windows' && steps.restore.outputs.cache-hit != 'true'
+      if: steps.restore.outputs.cache-hit != 'true' && steps.key.outputs.setup-done != 'true'
       uses: actions/cache/save@v4
       with:
         path: |
           ${{ runner.tool_cache }}/opam
           ~/.opam
+          C:\.opam
           _opam
           .opam-path
         key: ${{ steps.key.outputs.key }}

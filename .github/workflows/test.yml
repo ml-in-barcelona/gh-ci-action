@@ -50,8 +50,9 @@ jobs:
         uses: ./.action/dune-cache/save
         if: ${{ !cancelled() }}
 
-      # The first call has saved the switch, so a second call must hit it
-      # exactly, skip setup-ocaml and still leave a working environment.
+      # setup-ocaml already ran in this job, so the second call skips the
+      # restore and the setup. It restores nothing, so it reports 'false'; the
+      # `reuse` job checks the exact hit.
       - name: Setup again
         id: again
         uses: ./.action
@@ -60,12 +61,10 @@ jobs:
           pins: |
             ochre https://github.com/davesnx/ochre.git#f367ec7b372e20fddabc065201cf696564361abe
 
-      # The action's own opam cache stays skipped on Windows for now.
       - name: Check the second call cache-hit value
         env:
-          EXPECTED: ${{ runner.os == 'Windows' && 'false' || 'true' }}
           ACTUAL: ${{ steps.again.outputs.cache-hit }}
-        run: test "$ACTUAL" = "$EXPECTED"
+        run: test "$ACTUAL" = "false"
 
       - name: Build and test again
         run: opam exec -- dune build @runtest
@@ -78,3 +77,40 @@ jobs:
           opam exec -- dune build @runtest --trace-file=trace.json
           opam exec -- dune trace commands --trace-file=trace.json | tee commands.txt
           test "$(grep -vc -e '-config' commands.txt)" = "0"
+
+  # A fresh runner restores the switch the `test` job saved.
+  reuse:
+    name: reuse ${{ matrix.os }}
+    needs: test
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: .action
+
+      - name: Use the fixture as the project
+        run: cp .action/test/fixture/* .
+
+      - name: Setup
+        id: setup
+        uses: ./.action
+        with:
+          ocaml-compiler: 5.4.0
+          pins: |
+            ochre https://github.com/davesnx/ochre.git#f367ec7b372e20fddabc065201cf696564361abe
+
+      - name: Check the exact cache hit
+        env:
+          ACTUAL: ${{ steps.setup.outputs.cache-hit }}
+        run: test "$ACTUAL" = "true"
+
+      - name: Build and test
+        run: opam exec -- dune build @runtest
