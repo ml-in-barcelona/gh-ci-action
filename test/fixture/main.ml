@@ -1,1 +1,3 @@
-let () = print_endline "ok"
+let () =
+  assert (Ochre.Theme.available_names <> []);
+  print_endline "ok"

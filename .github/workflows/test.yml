@@ -60,9 +60,21 @@ jobs:
           pins: |
             ochre https://github.com/davesnx/ochre.git#f367ec7b372e20fddabc065201cf696564361abe
 
-      - name: Check the second call hit the cache
-        if: runner.os != 'Windows'
-        run: test "${{ steps.again.outputs.cache-hit }}" = "true"
+      # The action's own opam cache stays skipped on Windows for now.
+      - name: Check the second call cache-hit value
+        env:
+          EXPECTED: ${{ runner.os == 'Windows' && 'false' || 'true' }}
+          ACTUAL: ${{ steps.again.outputs.cache-hit }}
+        run: test "$ACTUAL" = "$EXPECTED"
 
       - name: Build and test again
         run: opam exec -- dune build @runtest
+
+      # Without _build, dune can only skip its compile commands by reading the
+      # shared cache. `ocamlc -config` runs on every build, so it does not count.
+      - name: Check dune reads the shared cache
+        run: |
+          rm -rf _build
+          opam exec -- dune build @runtest --trace-file=trace.json
+          opam exec -- dune trace commands --trace-file=trace.json | tee commands.txt
+          test "$(grep -vc -e '-config' commands.txt)" = "0"
