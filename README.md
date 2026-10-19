@@ -75,6 +75,28 @@ a commit (`url#sha`), so that a new commit gives a new key.
 Outputs: `cache-hit` (`true` when this call restored the exact key, else `false`),
 `cache-matched-key` (empty on a full miss).
 
+## Timings
+
+Duration of the `Setup` step in
+[run 39245144226](https://github.com/ml-in-barcelona/gh-ci-action/actions/runs/39245144226)
+(2026-10-19, commit `5087fce`):
+
+| OS | Cold | Prefix restore | Warm | Second call |
+| --- | --- | --- | --- | --- |
+| `ubuntu-latest` | 115 s | not measured | 45 s | 20 s |
+| `macos-latest` | 146 s | not measured | 30 s | 27 s |
+| `windows-latest` | 190 s | not measured | 46 s | 17 s |
+
+Cold means the action's cache has no entry, so the action runs `setup-ocaml`
+and installs the dependencies. `setup-ocaml` still found its own opam cache in
+this run, so a first run on a new repository can take longer. Prefix restore
+means an older switch restores and `opam update` refreshes it. Warm means an
+exact hit on a fresh runner. Second call is a later call in the same job.
+
+The fixture in `test/fixture` has only `dune` as a dependency. A real project
+takes longer when cold. The `dune-cache` actions are not timed here: the
+fixture builds in about 1 s.
+
 ## dune-cache
 
 `dune-cache/load` restores the dune cache. It has no inputs. The key holds the
