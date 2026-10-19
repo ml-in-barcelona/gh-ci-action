@@ -21,7 +21,7 @@ runs:
 
     - name: Save dune cache
       if: steps.trim.outputs.grown == '1'
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@v6
       with:
         path: ${{ env.DUNE_CACHE_ROOT }}
         key: ${{ env.DUNE_CACHE_KEY }}
