@@ -44,6 +44,8 @@ An older switch is restored only when OS, architecture, runner image name,
 compiler and `setup-ocaml` version match. The exact key also changes with the
 runner image version, the month, the other inputs and the hash of `*.opam`,
 `*.opam.locked` and `dune-project`. Opam sandboxing is always disabled.
+The `setup-ocaml` version comes from this action's own `uses:` line. Dependabot
+keeps `setup-ocaml` and the other actions up to date.
 
 A second call in the same job with the same compiler skips the restore,
 `setup-ocaml` and the save. Its `cache-hit` is `false`.

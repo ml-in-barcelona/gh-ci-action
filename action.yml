@@ -44,8 +44,9 @@ runs:
         OPAM_FILES_HASH: ${{ hashFiles('*.opam', '*.opam.locked', 'dune-project') }}
       run: |
         image="${ImageOS:-$(. /etc/os-release 2>/dev/null; echo "${ID:-}-${VERSION_ID:-}")}"
-        # Keep the version equal to the `uses:` line below.
-        prefix="opam-$RUNNER_OS-$RUNNER_ARCH-$image-$COMPILER-setup-ocaml-3.9.0-"
+        version="$(sed -n 's|^ *uses: ocaml/setup-ocaml@v\([0-9][0-9.]*[0-9]\).*|\1|p' "$GITHUB_ACTION_PATH/action.yml")"
+        if [[ -z "$version" ]]; then echo "::error::no ocaml/setup-ocaml@v<version> in $GITHUB_ACTION_PATH/action.yml"; exit 1; fi
+        prefix="opam-$RUNNER_OS-$RUNNER_ARCH-$image-$COMPILER-setup-ocaml-$version-"
         if command -v sha256sum > /dev/null; then sha=(sha256sum); else sha=(shasum -a 256); fi
         digest="$(printf '%s\n' "$PINS" "$OPTS" "$OPAM_FILES_HASH" "${ImageVersion:-}" "$(date -u +%Y-%m)" | "${sha[@]}")"
         echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
