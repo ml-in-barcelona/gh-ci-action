@@ -6,9 +6,8 @@ on:
       - main
   pull_request:
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  OCHRE_PIN: ochre https://github.com/davesnx/ochre.git#f367ec7b372e20fddabc065201cf696564361abe
 
 jobs:
   save:
@@ -23,63 +22,45 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-      # The action installs the opam files in the workspace root, so the repo
-      # goes into a hidden folder (dune skips it) and the fixture becomes the
-      # root project.
+      # The action works on the root project, so the repo goes in a hidden
+      # folder (dune skips it) and the fixture becomes the root.
       - uses: actions/checkout@v4
         with:
           path: .action
 
-      - name: Use the fixture as the project
-        run: cp .action/test/fixture/* .
+      - run: cp .action/test/fixture/* .
 
       - name: Setup
         uses: ./.action
         with:
           ocaml-compiler: 5.4.0
-          pins: |
-            ochre https://github.com/davesnx/ochre.git#f367ec7b372e20fddabc065201cf696564361abe
+          pins: ${{ env.OCHRE_PIN }}
 
-      - name: Dune cache
-        uses: ./.action/dune-cache/load
+      - uses: ./.action/dune-cache/load
 
-      - name: Build and test
-        run: opam exec -- dune build @runtest
+      - run: opam exec -- dune build @runtest
 
-      - name: Save dune cache
-        uses: ./.action/dune-cache/save
+      - uses: ./.action/dune-cache/save
         if: ${{ !cancelled() }}
 
-      # setup-ocaml already ran in this job, so the second call skips the
-      # restore and the setup. It restores nothing, so it reports 'false'; the
-      # `restore` job checks the exact hit.
       - name: Setup again
         id: again
         uses: ./.action
         with:
           ocaml-compiler: 5.4.0
-          pins: |
-            ochre https://github.com/davesnx/ochre.git#f367ec7b372e20fddabc065201cf696564361abe
+          pins: ${{ env.OCHRE_PIN }}
 
       - name: Check the second call cache-hit value
-        env:
-          ACTUAL: ${{ steps.again.outputs.cache-hit }}
-        run: test "$ACTUAL" = "false"
+        run: test "${{ steps.again.outputs.cache-hit }}" = "false"
 
-      - name: Build and test again
-        run: opam exec -- dune build @runtest
-
-      # Without _build, dune can only skip its compile commands by reading the
-      # shared cache. `ocamlc -config` runs on every build, so it does not count.
+      # Without _build, dune skips its commands only by reading the shared
+      # cache. `ocamlc -config` runs on every build, so it does not count.
       - name: Check dune reads the shared cache
         run: |
           rm -rf _build
           opam exec -- dune build @runtest --trace-file=trace.json
-          opam exec -- dune trace commands --trace-file=trace.json | tee commands.txt
-          test "$(grep -vc -e '-config' commands.txt)" = "0"
+          test "$(opam exec -- dune trace commands --trace-file=trace.json | grep -vc -e '-config')" = "0"
 
-  # A fresh runner restores the switch the `save` job saved, so this call must
-  # hit it exactly, skip setup-ocaml and still leave a working environment.
   restore:
     name: Restore on ${{ matrix.os }}
     needs: save
@@ -97,24 +78,16 @@ jobs:
         with:
           path: .action
 
-      - name: Use the fixture as the project
-        run: cp .action/test/fixture/* .
+      - run: cp .action/test/fixture/* .
 
       - name: Setup
         id: setup
         uses: ./.action
         with:
           ocaml-compiler: 5.4.0
-          pins: |
-            ochre https://github.com/davesnx/ochre.git#f367ec7b372e20fddabc065201cf696564361abe
+          pins: ${{ env.OCHRE_PIN }}
 
       - name: Check the exact cache hit
-        env:
-          ACTUAL: ${{ steps.setup.outputs.cache-hit }}
-        run: test "$ACTUAL" = "true"
+        run: test "${{ steps.setup.outputs.cache-hit }}" = "true"
 
-      - name: Check the compiler
-        run: opam exec -- ocamlc -version
-
-      - name: Build and test
-        run: opam exec -- dune build @runtest
+      - run: opam exec -- dune build @runtest

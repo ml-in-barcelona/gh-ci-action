@@ -9,10 +9,6 @@ outputs:
 runs:
   using: composite
   steps:
-    # dune would pick a different default root per OS; one explicit path keeps
-    # the cached path and the trimmed path identical.
-    # The compiler version comes from the switch, so matrix jobs on the same OS
-    # keep separate caches without the caller passing it.
     - name: Choose dune cache root and key
       id: root
       shell: bash
@@ -22,11 +18,7 @@ runs:
         else
           root="$HOME/.cache/dune"
         fi
-        if command -v opam > /dev/null; then
-          ocaml="$(opam exec -- ocamlc -version | tr -d '\r')"
-        else
-          ocaml="$(ocamlc -version | tr -d '\r')"
-        fi
+        ocaml="$(opam exec -- ocamlc -version | tr -d '\r')"
         prefix="dune-$RUNNER_OS-$RUNNER_ARCH-$ocaml-"
         echo "path=$root"                        >> "$GITHUB_OUTPUT"
         echo "prefix=$prefix"                    >> "$GITHUB_OUTPUT"
@@ -43,7 +35,6 @@ runs:
         key: ${{ env.DUNE_CACHE_KEY }}
         restore-keys: ${{ steps.root.outputs.prefix }}
 
-    # The save action compares against this size.
     - name: Measure dune cache
       shell: bash
       run: |

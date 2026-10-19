@@ -31,33 +31,22 @@ steps:
 Gives you an opam switch with the dependencies of the `*.opam` files in the
 repository root.
 
-- On an exact cache hit, it restores the switch and installs the system
-  packages that the opam packages need (`opam install --depext-only`), because
-  a fresh VM does not have them. On Linux it first runs `opam update --depexts`
-  (`sudo apt-get update`), because opam cannot find system packages with empty
-  apt lists. Opam loads the whole switch for this, so it adds about 20 s.
-- Otherwise it restores an older switch and runs `opam update`, or runs
-  `ocaml/setup-ocaml` when nothing matches. Then it runs `opam pin add` for
-  each pin and `opam install . --deps-only` with the flags below. It runs
-  `opam clean` and saves the switch at once, so a failed build does not lose it.
+- Exact cache hit: restores the switch and installs the system packages its
+  opam packages need (`opam install --depext-only`), because a fresh VM does
+  not have them. On Linux it first runs `opam update --depexts`. This adds
+  about 20 s.
+- Otherwise: restores an older switch and runs `opam update`, or runs
+  `ocaml/setup-ocaml` when nothing matches. Then it pins, runs
+  `opam install . --deps-only`, runs `opam clean` and saves the switch at once,
+  so a failed build does not lose it.
 
-An older switch is restored only when these match: OS, architecture, runner
-image name (`ImageOS`, or the OS release on self-hosted runners), compiler,
-`setup-ocaml` version and `opam-disable-sandboxing`. The exact key also changes
-with the runner image version, the `cache-period`, the other inputs below and
-the hash of `*.opam`, `*.opam.locked` and `dune-project`. A Makefile edit reuses
-the switch. A new image version or a new period restores the old switch and
-refreshes it with `opam update`.
+An older switch is restored only when OS, architecture, runner image name,
+compiler, `setup-ocaml` version and `opam-disable-sandboxing` match. The exact
+key also changes with the runner image version, `cache-period`, the other
+inputs and the hash of `*.opam`, `*.opam.locked` and `dune-project`.
 
-Windows is cached like the other OSes. The cache also holds `C:\.opam`, which
-contains setup-ocaml's Cygwin. The action sets the native-symlink options
-before the restore and exports `OPAMROOT`, `BASH_ENV` and the Cygwin `PATH`
-after it.
-
-If the same job calls the action again with the same compiler, the second call
-skips the restore, `setup-ocaml` and the save, because the first call already
-set up the environment. On Windows a second restore onto the populated tree
-would fail. Its `cache-hit` is `false`.
+A second call in the same job with the same compiler skips the restore,
+`setup-ocaml` and the save. Its `cache-hit` is `false`.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
@@ -70,9 +59,9 @@ would fail. Its `cache-hit` is `false`.
 | `opam-disable-sandboxing` | `true` | Passed to `setup-ocaml`. It is in the cache key, because the restored opam root keeps the setting. |
 | `cache-period` | `%Y-%m` | `date` format in the exact key. `%G-%V` refreshes weekly, empty never. |
 
-`pins` exists because opam-repository does not accept `pin-depends`. If a line
-does not have exactly two fields, the action fails and names that line. Pin to
-a commit (`url#sha`), so that a new commit gives a new key.
+`pins` exists because opam-repository does not accept `pin-depends`. Pin to a
+commit (`url#sha`), so that a new commit gives a new key. A line without
+exactly two fields fails the action.
 
 Outputs: `cache-hit` (`true` when this call restored the exact key, else `false`),
 `cache-matched-key` (empty on a full miss).
