@@ -1,0 +1,47 @@
+name: Dune cache
+description: Restore the dune cache and enable it for later steps. Pair with dune-cache/save.
+
+inputs:
+  ocaml-compiler:
+    description: OCaml compiler version, part of the cache key.
+    required: true
+
+outputs:
+  cache-hit:
+    description: "'true' when the exact dune cache key was restored."
+    value: ${{ steps.restore.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    # dune would pick a different default root per OS; one explicit path keeps
+    # the cached path and the trimmed path identical.
+    - name: Choose dune cache root
+      id: root
+      shell: bash
+      run: |
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          root="$LOCALAPPDATA\\dune"
+        else
+          root="$HOME/.cache/dune"
+        fi
+        echo "path=$root" >> "$GITHUB_OUTPUT"
+        echo "DUNE_CACHE=enabled"           >> "$GITHUB_ENV"
+        echo "DUNE_CACHE_STORAGE_MODE=copy" >> "$GITHUB_ENV"
+        echo "DUNE_CACHE_ROOT=$root"        >> "$GITHUB_ENV"
+        echo "DUNE_CACHE_KEY=dune-${{ runner.os }}-${{ runner.arch }}-${{ inputs.ocaml-compiler }}-${{ github.sha }}" >> "$GITHUB_ENV"
+
+    - name: Load dune cache
+      id: restore
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.root.outputs.path }}
+        key: dune-${{ runner.os }}-${{ runner.arch }}-${{ inputs.ocaml-compiler }}-${{ github.sha }}
+        restore-keys: dune-${{ runner.os }}-${{ runner.arch }}-${{ inputs.ocaml-compiler }}-
+
+    # The save action compares against this size.
+    - name: Measure dune cache
+      shell: bash
+      run: |
+        mkdir -p "$DUNE_CACHE_ROOT"
+        echo "DUNE_CACHE_KB_BEFORE=$(du -sk "$DUNE_CACHE_ROOT" | cut -f1)" >> "$GITHUB_ENV"

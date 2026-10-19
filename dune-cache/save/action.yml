@@ -1,0 +1,29 @@
+name: Dune cache save
+description: Trim the dune cache and save it when it grew. Run after dune-cache and the build steps.
+
+inputs:
+  max-size:
+    description: Size limit passed to `dune cache trim --size`.
+    default: 2GB
+
+runs:
+  using: composite
+  steps:
+    # Composite actions have no post step, so the caller decides when this runs
+    # (use `if: ${{ !cancelled() }}` to keep a cache after a failed test).
+    - name: Trim dune cache
+      id: trim
+      shell: bash
+      env:
+        MAX_SIZE: ${{ inputs.max-size }}
+      run: |
+        opam exec -- dune cache trim --size="$MAX_SIZE"
+        kb="$(du -sk "$DUNE_CACHE_ROOT" | cut -f1)"
+        echo "grown=$(( kb > DUNE_CACHE_KB_BEFORE + 1024 ))" >> "$GITHUB_OUTPUT"
+
+    - name: Save dune cache
+      if: steps.trim.outputs.grown == '1'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ env.DUNE_CACHE_ROOT }}
+        key: ${{ env.DUNE_CACHE_KEY }}

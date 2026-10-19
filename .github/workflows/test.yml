@@ -1,0 +1,65 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        uses: ./
+        with:
+          ocaml-compiler: 5.4.0
+          install: opam install ./test/fixture --deps-only -y
+          cache-key-files: |
+            test/fixture/*.opam
+            test/fixture/dune-project
+
+      - name: Dune cache
+        uses: ./dune-cache
+        with:
+          ocaml-compiler: 5.4.0
+
+      - name: Build and test
+        run: opam exec -- dune build @runtest --root test/fixture
+
+      - name: Save dune cache
+        uses: ./dune-cache/save
+        if: ${{ !cancelled() }}
+
+      # The first call has saved the switch, so a second call must hit it
+      # exactly, skip setup-ocaml and still leave a working environment.
+      - name: Setup again
+        id: again
+        uses: ./
+        with:
+          ocaml-compiler: 5.4.0
+          install: opam install ./test/fixture --deps-only -y
+          cache-key-files: |
+            test/fixture/*.opam
+            test/fixture/dune-project
+
+      - name: Check the second call hit the cache
+        run: test "${{ steps.again.outputs.cache-hit }}" = "true"
+
+      - name: Build and test again
+        run: opam exec -- dune build @runtest --root test/fixture

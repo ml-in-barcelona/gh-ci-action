@@ -1,0 +1,7 @@
+(lang dune 3.0)
+
+(name fixture)
+
+(package
+ (name fixture)
+ (depends ocaml dune))
