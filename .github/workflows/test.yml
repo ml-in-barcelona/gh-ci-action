@@ -24,7 +24,7 @@ jobs:
     steps:
       # The action works on the root project, so the repo goes in a hidden
       # folder (dune skips it) and the fixture becomes the root.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: .action
 
@@ -74,7 +74,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: .action
 
