@@ -60,20 +60,17 @@ a commit (`url#sha`), so that a new commit gives a new key.
 
 Outputs: `cache-hit`, `cache-matched-key`.
 
-## dune-cache/load
+## dune-cache
 
-No inputs. The key holds the OS, architecture, `ocamlc -version` and the
-commit. Sets `DUNE_CACHE=enabled`, `DUNE_CACHE_STORAGE_MODE=copy` and
-`DUNE_CACHE_ROOT` (`~/.cache/dune`, or `%LOCALAPPDATA%\dune` on Windows).
+`dune-cache/load` restores the dune cache. It has no inputs. The key holds the
+OS, architecture, `ocamlc -version` and the commit. It sets
+`DUNE_CACHE=enabled`, `DUNE_CACHE_STORAGE_MODE=copy` and `DUNE_CACHE_ROOT`
+(`~/.cache/dune`, or `%LOCALAPPDATA%\dune` on Windows). Output: `cache-hit`.
 
-Output: `cache-hit`.
-
-## dune-cache/save
-
-Composite actions cannot run a step at job end, so add this step yourself. Use
-`if: ${{ !cancelled() }}` to save the cache when tests fail. It trims the cache
-to `max-size` (default `2GB`) and saves only when the cache grew by more than
-1 MB.
+`dune-cache/save` saves the cache. Composite actions cannot run a step at job
+end, so add this step yourself. Use `if: ${{ !cancelled() }}` to save the cache
+when tests fail. It trims the cache to `max-size` (default `2GB`) and saves
+only when the cache grew by more than 1 MB.
 
 ## Cram tests
 
