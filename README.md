@@ -5,22 +5,16 @@ cache. Works on Linux, macOS and Windows.
 
 ## Performance
 
-With a warm cache, the setup step takes under a minute on every OS, 7 to 12
-times faster than `ocaml/setup-ocaml` with its own cache. Times with OCaml 5.4.0
-in html_of_jsx:
+With a warm cache, the setup step takes under a minute on every OS, 8 to 15
+times faster than a cold run. Times of the setup step with OCaml 5.4.0 in
+[html_of_jsx run 39250813287](https://github.com/davesnx/html_of_jsx/actions/runs/39250813287)
+(2026-10-19), cold (attempt 1) and warm (attempt 2):
 
-- `ocaml/setup-ocaml`: the `setup-ocaml`, pin and install steps added together, in
-  [run 37486977904](https://github.com/davesnx/html_of_jsx/actions/runs/37486977904)
-  (2026-10-06). `setup-ocaml` restored its own cache.
-- Cold and warm: the setup step of this action in
-  [run 39250813287](https://github.com/davesnx/html_of_jsx/actions/runs/39250813287)
-  (2026-10-19), attempts 1 and 2.
-
-| OS | `ocaml/setup-ocaml` | Cold | Warm |
-| --- | --- | --- | --- |
-| `ubuntu-latest` | 298 s | 336 s | 40 s |
-| `macos-latest` | 478 s | 620 s | 40 s |
-| `windows-latest` | 534 s | 539 s | 59 s |
+| OS | Cold | Warm |
+| --- | --- | --- |
+| `ubuntu-latest` | 336 s | 40 s |
+| `macos-latest` | 620 s | 40 s |
+| `windows-latest` | 539 s | 59 s |
 
 ## Usage
 
