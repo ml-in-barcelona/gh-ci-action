@@ -11,8 +11,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
-    name: ${{ matrix.os }}
+  save:
+    name: Save on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -50,19 +50,42 @@ jobs:
         uses: ./.action/dune-cache/save
         if: ${{ !cancelled() }}
 
-      # The first call has saved the switch, so a second call must hit it
-      # exactly, skip setup-ocaml and still leave a working environment.
-      - name: Setup again
-        id: again
+  # A fresh runner, because the action must be called once per job. The
+  # first job has saved the switch, so this call must hit it exactly, skip
+  # setup-ocaml and still leave a working environment.
+  restore:
+    name: Restore on ${{ matrix.os }}
+    needs: save
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: .action
+
+      - name: Use the fixture as the project
+        run: cp .action/test/fixture/* .
+
+      - name: Setup
+        id: setup
         uses: ./.action
         with:
           ocaml-compiler: 5.4.0
           pins: |
             ochre https://github.com/davesnx/ochre.git#f367ec7b372e20fddabc065201cf696564361abe
 
-      - name: Check the second call hit the cache
-        if: runner.os != 'Windows'
-        run: test "${{ steps.again.outputs.cache-hit }}" = "true"
+      - name: Check the call hit the cache
+        run: test "${{ steps.setup.outputs.cache-hit }}" = "true"
 
-      - name: Build and test again
+      - name: Check the compiler
+        run: opam exec -- ocamlc -version
+
+      - name: Build and test
         run: opam exec -- dune build @runtest
