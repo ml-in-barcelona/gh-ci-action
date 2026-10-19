@@ -1,0 +1,292 @@
+name: Windows cache experiments
+
+# Throwaway experiment. Every strategy runs as a pair: `save` builds a switch on
+# a fresh runner and saves it under a unique key, `restore` restores that key on
+# another fresh runner and proves the switch works. Read the lines starting
+# with TIMING in each job log, and the job summaries.
+#
+# A-plain         full path set (opam root with Cygwin, local switch, opam binary), Git tar
+# B-switch-only   setup-ocaml always runs (own cache: opam root + Cygwin), we cache only _opam
+# C-no-dirhash    as A, but the ca-trust directory-hash symlinks are deleted before the save
+# D-alt-tar       as A, but actions/cache uses the Windows bsdtar instead of Git tar
+
+on:
+  push:
+    branches:
+      - windows-cache
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  OCAML_COMPILER: 5.4.0
+  OCHRE_PIN: https://github.com/davesnx/ochre.git#f367ec7b372e20fddabc065201cf696564361abe
+
+jobs:
+  save:
+    name: save-${{ matrix.strategy }}
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        strategy: [A-plain, B-switch-only, C-no-dirhash, D-alt-tar]
+    env:
+      CACHE_KEY: exp-win-${{ matrix.strategy }}-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: .action
+
+      - name: Use the fixture as the project
+        run: cp .action/test/fixture/* .
+
+      - name: Choose cache paths
+        id: paths
+        env:
+          STRATEGY: ${{ matrix.strategy }}
+        run: |
+          full() {
+            printf '%s\n' "$RUNNER_TOOL_CACHE\\opam" 'C:\.opam' '_opam' '.opam-dir'
+          }
+          case "$STRATEGY" in
+            B-*) paths="_opam" ;;
+            *) paths="$(full)" ;;
+          esac
+          { echo 'paths<<EOF'; printf '%s\n' "$paths"; echo EOF; } >> "$GITHUB_OUTPUT"
+          printf 'cache paths:\n%s\n' "$paths"
+
+      # D only: put System32 first, so `tar --version` finds bsdtar, and hide
+      # Git from the toolkit (it looks for %PROGRAMFILES%\Git\usr\bin\tar.exe first).
+      - name: Prefer bsdtar
+        if: ${{ startsWith(matrix.strategy, 'D') }}
+        run: echo 'C:\Windows\System32' >> "$GITHUB_PATH"
+
+      - name: Show tar candidates
+        run: |
+          which -a tar || true
+          tar --version | head -1
+
+      - name: Mark setup-ocaml start
+        run: echo "T_SETUP=$(date +%s)" >> "$GITHUB_ENV"
+
+      # A, C and D build from scratch (cache: false) so the saved archive comes
+      # from a fresh install, as on a cold key. B needs setup-ocaml's own cache.
+      - name: Use OCaml ${{ env.OCAML_COMPILER }}
+        uses: ocaml/setup-ocaml@v3.9.0
+        with:
+          ocaml-compiler: ${{ env.OCAML_COMPILER }}
+          opam-disable-sandboxing: true
+          cache: ${{ startsWith(matrix.strategy, 'B') }}
+
+      - name: Report setup-ocaml time
+        run: echo "TIMING save-${{ matrix.strategy }} setup-ocaml = $(( $(date +%s) - T_SETUP ))s" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Install dependencies
+        run: |
+          start=$(date +%s)
+          opam pin add ochre "$OCHRE_PIN" -yn
+          opam install . --deps-only --with-test fmt cmdliner
+          echo "TIMING save-${{ matrix.strategy }} install: $(( $(date +%s) - start ))s" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Build and test the fixture
+        run: opam exec -- dune build @runtest
+
+      - name: Record the opam binary directory
+        run: |
+          cygpath -w "$(dirname "$(command -v opam)")" > .opam-dir
+          cat .opam-dir
+          du -sh /c/.opam _opam "$RUNNER_TOOL_CACHE/opam" || true
+
+      - name: Delete the directory-hash symlinks
+        if: ${{ startsWith(matrix.strategy, 'C') }}
+        run: |
+          dir='C:/.opam/.cygwin/root/etc/pki/ca-trust/extracted/pem/directory-hash'
+          find "$dir" -type l | wc -l
+          rm -rf "$dir"
+
+      - name: Mark save start
+        run: echo "T_SAVE=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Save cache
+        if: ${{ !startsWith(matrix.strategy, 'D') }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.paths.outputs.paths }}
+          key: ${{ env.CACHE_KEY }}
+
+      - name: Save cache (bsdtar)
+        if: ${{ startsWith(matrix.strategy, 'D') }}
+        uses: actions/cache/save@v4
+        env:
+          PROGRAMFILES: Z:\no-git
+        with:
+          path: ${{ steps.paths.outputs.paths }}
+          key: ${{ env.CACHE_KEY }}
+
+      - name: Report save time
+        run: echo "TIMING save-${{ matrix.strategy }} cache save = $(( $(date +%s) - T_SAVE ))s" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  restore:
+    name: restore-${{ matrix.strategy }}
+    needs: save
+    # A failed save leg must not hide the other restore legs.
+    if: ${{ !cancelled() }}
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        strategy: [A-plain, B-switch-only, C-no-dirhash, D-alt-tar]
+    env:
+      CACHE_KEY: exp-win-${{ matrix.strategy }}-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Mark job start
+        run: echo "T_JOB=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+        with:
+          path: .action
+
+      - name: Use the fixture as the project
+        run: cp .action/test/fixture/* .
+
+      - name: Choose cache paths
+        id: paths
+        env:
+          STRATEGY: ${{ matrix.strategy }}
+        run: |
+          full() {
+            printf '%s\n' "$RUNNER_TOOL_CACHE\\opam" 'C:\.opam' '_opam' '.opam-dir'
+          }
+          case "$STRATEGY" in
+            B-*) paths="_opam" ;;
+            *) paths="$(full)" ;;
+          esac
+          { echo 'paths<<EOF'; printf '%s\n' "$paths"; echo EOF; } >> "$GITHUB_OUTPUT"
+          printf 'cache paths:\n%s\n' "$paths"
+
+      - name: Prefer bsdtar
+        if: ${{ startsWith(matrix.strategy, 'D') }}
+        run: echo 'C:\Windows\System32' >> "$GITHUB_PATH"
+
+      - name: Show tar candidates
+        run: |
+          which -a tar || true
+          tar --version | head -1
+          if test -e /c/.opam; then echo "C:/.opam already exists"; else echo "C:/.opam absent (fresh runner)"; fi
+
+      # A, C, D: what setup-ocaml does before its own restore.
+      - name: Prepare symlink settings (no setup-ocaml)
+        if: ${{ !startsWith(matrix.strategy, 'B') }}
+        run: |
+          fsutil behavior set symlinkEvaluation R2L:1 R2R:1
+          echo "MSYS=winsymlinks:native"   >> "$GITHUB_ENV"
+          echo "CYGWIN=winsymlinks:native" >> "$GITHUB_ENV"
+
+      # B: setup-ocaml restores its own cache (opam root, Cygwin, bare switch).
+      - name: Mark setup-ocaml start
+        if: ${{ startsWith(matrix.strategy, 'B') }}
+        run: echo "T_SETUP=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Use OCaml ${{ env.OCAML_COMPILER }}
+        if: ${{ startsWith(matrix.strategy, 'B') }}
+        uses: ocaml/setup-ocaml@v3.9.0
+        with:
+          ocaml-compiler: ${{ env.OCAML_COMPILER }}
+          opam-disable-sandboxing: true
+
+      - name: Report setup-ocaml time
+        if: ${{ startsWith(matrix.strategy, 'B') }}
+        run: echo "TIMING restore-${{ matrix.strategy }} setup-ocaml = $(( $(date +%s) - T_SETUP ))s" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # setup-ocaml's cache also holds a bare _opam; ours must replace it.
+      - name: Drop the bare switch
+        if: ${{ startsWith(matrix.strategy, 'B') }}
+        run: rm -rf _opam
+
+      - name: Mark restore start
+        run: echo "T_RESTORE=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Restore cache
+        id: restore
+        if: ${{ !startsWith(matrix.strategy, 'D') }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ steps.paths.outputs.paths }}
+          key: ${{ env.CACHE_KEY }}
+          fail-on-cache-miss: true
+
+      - name: Restore cache (bsdtar)
+        id: restore-alt
+        if: ${{ startsWith(matrix.strategy, 'D') }}
+        uses: actions/cache/restore@v4
+        env:
+          PROGRAMFILES: Z:\no-git
+        with:
+          path: ${{ steps.paths.outputs.paths }}
+          key: ${{ env.CACHE_KEY }}
+          fail-on-cache-miss: true
+
+      - name: Report restore time
+        run: |
+          echo "TIMING restore-${{ matrix.strategy }} cache restore: $(( $(date +%s) - T_RESTORE ))s" | tee -a "$GITHUB_STEP_SUMMARY"
+          du -sh _opam /c/.opam 2>&1 || true
+          echo "symlinks under C:/.opam: $(find /c/.opam -type l 2>/dev/null | wc -l)"
+          echo "symlinks in directory-hash: $(find /c/.opam/.cygwin/root/etc/pki/ca-trust/extracted/pem/directory-hash -type l 2>/dev/null | wc -l)"
+
+      # A, C, D: what setup-ocaml would export (v3.9.0 installer.ts), without running it.
+      - name: Export the opam environment (no setup-ocaml)
+        if: ${{ !startsWith(matrix.strategy, 'B') }}
+        run: |
+          {
+            echo "OPAMCOLOR=always"
+            echo "OPAMCONFIRMLEVEL=unsafe-yes"
+            echo "OPAMDOWNLOADJOBS=4"
+            echo "OPAMERRLOGLEN=0"
+            echo "OPAMEXTERNALSOLVER=builtin-0install"
+            echo "OPAMPRECISETRACKING=1"
+            echo "OPAMRETRIES=10"
+            echo "OPAMSOLVERTIMEOUT=600"
+            echo "OPAMYES=1"
+            echo "CLICOLOR_FORCE=1"
+            echo "HOME=$USERPROFILE"
+            printf '%s\n' 'OPAMROOT=C:\.opam'
+            printf '%s\n' 'BASH_ENV=C:\.opam\.cygwin\root\bash_env'
+          } >> "$GITHUB_ENV"
+          { cat .opam-dir; echo; printf '%s\n' 'C:\.opam\.cygwin\root\bin'; } | grep -v '^$' >> "$GITHUB_PATH"
+
+      - name: Prove the switch works
+        run: |
+          set -x
+          opam --version
+          opam switch list
+          opam exec -- ocamlc -version
+          opam list --installed --short | grep -E '^(dune|fmt|cmdliner)$'
+          start=$(date +%s)
+          opam exec -- dune build @runtest
+          set +x
+          echo "TIMING restore-${{ matrix.strategy }} build and test: $(( $(date +%s) - start ))s" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Report job time
+        if: ${{ always() }}
+        run: echo "TIMING restore-${{ matrix.strategy }} job so far = $(( $(date +%s) - T_JOB ))s" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # A only: reproduce the failure seen in the self-test (second restore in
+      # the same job, onto a populated tree). Informational.
+      - name: Diagnostic - restore again onto the populated tree
+        if: ${{ startsWith(matrix.strategy, 'A') }}
+        id: again
+        continue-on-error: true
+        timeout-minutes: 12
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ steps.paths.outputs.paths }}
+          key: ${{ env.CACHE_KEY }}
+          fail-on-cache-miss: true
+
+      - name: Report the diagnostic
+        if: ${{ always() && startsWith(matrix.strategy, 'A') }}
+        run: echo "TIMING restore-${{ matrix.strategy }} second restore onto populated tree = ${{ steps.again.outcome }}" | tee -a "$GITHUB_STEP_SUMMARY"
