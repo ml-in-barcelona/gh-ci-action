@@ -26,35 +26,41 @@ steps:
     if: ${{ !cancelled() }}
 ```
 
-The root action restores the opam switch. When no cache matches, it runs
-`ocaml/setup-ocaml`. When the exact key misses (nothing cached, or only an
-older key matched), it installs the dependencies of the `*.opam` files in the
-workspace root and saves the switch at once, before the build can fail:
+## How it works
 
-1. `opam pin add <name> <url> -yn` for each line of `pins`.
-2. `opam update`, only when an older key was restored (its repository index is
-   stale).
-3. `opam install . --deps-only`, plus `--with-test` (on by default),
-   `--with-doc`, `--with-dev-setup` and `extra-packages` when set.
+The root action gives you an opam switch with your dependencies installed.
 
-The key holds the OS, architecture, compiler, `setup-ocaml` version, a hash of
-`pins`, `with-test`, `with-doc`, `with-dev-setup`, `extra-packages`, and the hash of
-`*.opam`. Nothing else changes it: editing a Makefile does not start a new
-switch.
+- **Cache hit:** it restores the switch and does nothing else.
+- **Cache miss:** it restores an older switch if one exists, or else runs
+  `ocaml/setup-ocaml`. Then it installs the dependencies of the `*.opam` files
+  in the repository root:
+  1. `opam pin add` for each line of `pins`.
+  2. `opam update`, only when it restored an older switch.
+  3. `opam install . --deps-only`, with the flags and `extra-packages` you set.
 
-`pins` is an input because opam-repository rejects `pin-depends` in `.opam`
-files, so published packages cannot declare them. Each line is `<name> <url>`,
-two fields; the action fails and names the line otherwise. Pin to a commit
-(`url#sha`) so the key changes with the pin.
+  It saves the switch right after the install, so a failed build does not lose
+  it.
 
-On Windows the root action skips its own cache: `tar` cannot recreate the
-Cygwin symlinks on restore. There it always runs `setup-ocaml`, with its
-built-in cache, and the install. `setup-ocaml` sets `OPAMRETRIES` for
-downloads.
+The cache key changes only when one of these changes: OS, architecture,
+compiler, `setup-ocaml` version, any input except `opam-disable-sandboxing`,
+or a `*.opam` file. Other edits, such as to a Makefile, reuse the switch.
 
-`dune-cache/save` has no post step to rely on, so the caller picks when it runs.
-Use `if: ${{ !cancelled() }}` to keep the cache after a failed test. It trims
-the cache and saves only when the cache grew by more than 1 MB.
+**`pins`:** opam-repository does not accept `pin-depends`, so give pins here.
+Write one `<name> <url>` per line. If a line does not have exactly two fields,
+the action fails and names that line. Pin to a commit (`url#sha`), so that a new
+commit gives a new key.
+
+**Windows:** the action does not use its own cache, because `tar` cannot
+restore the Cygwin symlinks. It always runs `setup-ocaml` (which has its own
+cache) and the install.
+
+**`dune-cache/save`:** composite actions cannot run a step at job end, so you
+add this step yourself. Use `if: ${{ !cancelled() }}` to save the cache when
+tests fail. It trims the cache to `max-size` and saves only when the cache
+grew by more than 1 MB.
+
+**Cram tests:** if cram tests run dune, turn off the dune cache inside them.
+Add `(env (_ (env-vars (DUNE_CACHE disabled))))` to the root `dune` file.
 
 ## Inputs
 
@@ -83,11 +89,3 @@ and `DUNE_CACHE_ROOT` (`~/.cache/dune`, or `%LOCALAPPDATA%\dune` on Windows).
 | Input | Default | Meaning |
 | --- | --- | --- |
 | `max-size` | `2GB` | Limit for `dune cache trim --size`. |
-
-## Stays in the consumer
-
-- `concurrency`, `fail-fast`, the matrix and the `schedule` trigger.
-- Other caches, such as npm.
-- If cram tests run dune inside, give them their own cache. Add
-  `(env (_ (env-vars (DUNE_CACHE disabled))))` to the root `dune` file so inner
-  builds do not share the cache with the outer build.
