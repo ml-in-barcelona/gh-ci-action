@@ -72,6 +72,7 @@ runs:
           ~/.opam
           C:\.opam
           _opam
+          .opam-dir
         key: ${{ steps.key.outputs.key }}
         restore-keys: ${{ steps.key.outputs.prefix }}
 
@@ -95,15 +96,11 @@ runs:
         echo "OPAMSOLVERTIMEOUT=600"               >> "$GITHUB_ENV"
         echo "OPAMYES=1"                           >> "$GITHUB_ENV"
 
-        # setup-ocaml puts the opam binary in <tool cache>/opam/<version>/<arch>.
-        dir="$(ls -d "$RUNNER_TOOL_CACHE"/opam/*/*)"
+        cat .opam-dir >> "$GITHUB_PATH"
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           echo 'OPAMROOT=C:\.opam'                       >> "$GITHUB_ENV"
           echo 'BASH_ENV=C:\.opam\.cygwin\root\bash_env' >> "$GITHUB_ENV"
-          cygpath -w "$dir"                              >> "$GITHUB_PATH"
           echo 'C:\.opam\.cygwin\root\bin'               >> "$GITHUB_PATH"
-        else
-          echo "$dir" >> "$GITHUB_PATH"
         fi
 
     - name: Install opam dependencies
@@ -118,6 +115,14 @@ runs:
       run: |
         echo "GH_CI_OCAML_READY=$COMPILER" >> "$GITHUB_ENV"
         read -r -a opts <<< "$OPTS"
+
+        # The cache holds no PATH, so a restoring run reads opam's directory
+        # from here. GITHUB_PATH needs the Windows form.
+        if [[ -z "$MATCHED" && "$AGAIN" != "true" ]]; then
+          dir="$(dirname "$(command -v opam)")"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then dir="$(cygpath -w "$dir")"; fi
+          echo "$dir" > .opam-dir
+        fi
 
         if [[ "$HIT" == "true" ]]; then
           # Empty apt lists on a fresh runner: opam only warns.
@@ -150,4 +155,5 @@ runs:
           ~/.opam
           C:\.opam
           _opam
+          .opam-dir
         key: ${{ steps.key.outputs.key }}
