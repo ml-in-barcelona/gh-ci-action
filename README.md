@@ -12,9 +12,9 @@ times faster than a cold run. Times of the setup step with OCaml 5.4.0 in
 
 | OS | Cold | Warm |
 | --- | --- | --- |
-| `ubuntu-latest` | 336 s | 40 s |
-| `macos-latest` | 620 s | 40 s |
-| `windows-latest` | 539 s | 59 s |
+| `ubuntu-latest` | 5m 36s | 40 s |
+| `macos-latest` | 10m 20s | 40 s |
+| `windows-latest` | 8m 59s | 59 s |
 
 ## Usage
 
