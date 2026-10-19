@@ -8,4 +8,5 @@ build: [
 depends: [
   "ocaml"
   "dune" {>= "3.0"}
+  "ochre"
 ]

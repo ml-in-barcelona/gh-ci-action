@@ -1,5 +1,6 @@
 (executable
- (name main))
+ (name main)
+ (libraries ochre))
 
 (rule
  (alias runtest)
