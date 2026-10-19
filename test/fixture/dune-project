@@ -4,4 +4,4 @@
 
 (package
  (name fixture)
- (depends ocaml dune ochre))
+ (depends ocaml dune))
