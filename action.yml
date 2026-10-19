@@ -175,6 +175,9 @@ runs:
 
         # The pins are already in the restored switch.
         if [[ "$CACHE_HIT" == "true" ]]; then
+          # A fresh runner has empty apt lists, so opam cannot find the system
+          # packages and only warns.
+          if [[ "$RUNNER_OS" == "Linux" ]]; then opam update --depexts; fi
           opam install . --deps-only --depext-only "${flags[@]}" "${extras[@]}"
           exit 0
         fi

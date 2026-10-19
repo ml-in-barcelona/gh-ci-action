@@ -33,7 +33,9 @@ repository root.
 
 - On an exact cache hit, it restores the switch and installs the system
   packages that the opam packages need (`opam install --depext-only`), because
-  a fresh VM does not have them.
+  a fresh VM does not have them. On Linux it first runs `opam update --depexts`
+  (`sudo apt-get update`), because opam cannot find system packages with empty
+  apt lists. Opam loads the whole switch for this, so it adds about 20 s.
 - Otherwise it restores an older switch and runs `opam update`, or runs
   `ocaml/setup-ocaml` when nothing matches. Then it runs `opam pin add` for
   each pin and `opam install . --deps-only` with the flags below. It runs
