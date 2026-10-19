@@ -36,11 +36,11 @@ workspace root and saves the switch at once, before the build can fail:
 1. `opam pin add <name> <url> -yn` for each line of `pins`.
 2. `opam update`, only when an older key was restored (its repository index is
    stale).
-3. `opam install . --deps-only --with-test`, plus `--with-doc`,
-   `--with-dev-setup` and `extra-packages` when set.
+3. `opam install . --deps-only`, plus `--with-test` (on by default),
+   `--with-doc`, `--with-dev-setup` and `extra-packages` when set.
 
 The key holds the OS, architecture, compiler, `setup-ocaml` version, a hash of
-`pins`, `with-doc`, `with-dev-setup`, `extra-packages`, and the hash of
+`pins`, `with-test`, `with-doc`, `with-dev-setup`, `extra-packages`, and the hash of
 `*.opam`. Nothing else changes it: editing a Makefile does not start a new
 switch.
 
@@ -66,6 +66,7 @@ Root action:
 | --- | --- | --- |
 | `ocaml-compiler` | required | Compiler version for `setup-ocaml`. Part of the key. |
 | `pins` | empty | One `<name> <url>` per line. Part of the key. |
+| `with-test` | `true` | Adds `--with-test`. Part of the key. |
 | `with-doc` | `false` | Adds `--with-doc`. Part of the key. |
 | `with-dev-setup` | `false` | Adds `--with-dev-setup`. Part of the key. |
 | `extra-packages` | empty | Space-separated packages installed with the dependencies. Part of the key. |

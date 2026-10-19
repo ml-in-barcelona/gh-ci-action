@@ -9,6 +9,9 @@ inputs:
     description: |
       One "<name> <url>" per line, pinned with `opam pin add <name> <url> -yn`. Kept out of the .opam files because opam-repository rejects pin-depends.
     default: ''
+  with-test:
+    description: "'true' adds --with-test to the dependency install."
+    default: 'true'
   with-doc:
     description: "'true' adds --with-doc to the dependency install."
     default: 'false'
@@ -40,6 +43,7 @@ runs:
       shell: bash
       env:
         PINS: ${{ inputs.pins }}
+        WITH_TEST: ${{ inputs.with-test }}
         WITH_DOC: ${{ inputs.with-doc }}
         WITH_DEV_SETUP: ${{ inputs.with-dev-setup }}
         EXTRAS: ${{ inputs.extra-packages }}
@@ -58,7 +62,7 @@ runs:
 
         # macOS has no sha256sum.
         if command -v sha256sum > /dev/null; then sha=(sha256sum); else sha=(shasum -a 256); fi
-        digest="$(printf '%s\n' "$PINS" "$WITH_DOC" "$WITH_DEV_SETUP" "$EXTRAS" "$OPAM_FILES_HASH" | "${sha[@]}")"
+        digest="$(printf '%s\n' "$PINS" "$WITH_TEST" "$WITH_DOC" "$WITH_DEV_SETUP" "$EXTRAS" "$OPAM_FILES_HASH" | "${sha[@]}")"
         echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
         echo "key=$PREFIX${digest%% *}" >> "$GITHUB_OUTPUT"
 
@@ -115,6 +119,7 @@ runs:
       shell: bash
       env:
         PINS: ${{ inputs.pins }}
+        WITH_TEST: ${{ inputs.with-test }}
         WITH_DOC: ${{ inputs.with-doc }}
         WITH_DEV_SETUP: ${{ inputs.with-dev-setup }}
         EXTRAS: ${{ inputs.extra-packages }}
@@ -129,10 +134,11 @@ runs:
         if [[ "$STALE_RESTORE" == "true" ]]; then opam update; fi
 
         flags=()
+        if [[ "$WITH_TEST" == "true" ]]; then flags+=(--with-test); fi
         if [[ "$WITH_DOC" == "true" ]]; then flags+=(--with-doc); fi
         if [[ "$WITH_DEV_SETUP" == "true" ]]; then flags+=(--with-dev-setup); fi
         read -r -a extras <<< "$EXTRAS"
-        opam install . --deps-only --with-test "${flags[@]}" "${extras[@]}"
+        opam install . --deps-only "${flags[@]}" "${extras[@]}"
 
     - name: Save opam cache
       if: runner.os != 'Windows' && steps.restore.outputs.cache-hit != 'true'
