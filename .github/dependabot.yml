@@ -3,6 +3,7 @@ updates:
   - package-ecosystem: github-actions
     directories:
       - /
-      - /dune-cache/*
+      - /dune-cache/load
+      - /dune-cache/save
     schedule:
       interval: weekly
