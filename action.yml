@@ -5,15 +5,19 @@ inputs:
   ocaml-compiler:
     description: OCaml compiler version, passed to ocaml/setup-ocaml.
     required: true
-  install:
-    description: Command that installs the project dependencies. Runs only when the exact cache key is missing.
-    default: make install
-  cache-key-files:
-    description: Newline-separated hashFiles patterns. A change in any file starts a new switch.
-    default: |
-      *.opam
-      dune-project
-      Makefile
+  pins:
+    description: |
+      One "<name> <url>" per line, pinned with `opam pin add <name> <url> -yn`. Kept out of the .opam files because opam-repository rejects pin-depends.
+    default: ''
+  with-doc:
+    description: "'true' adds --with-doc to the dependency install."
+    default: 'false'
+  with-dev-setup:
+    description: "'true' adds --with-dev-setup to the dependency install."
+    default: 'false'
+  extra-packages:
+    description: Space-separated packages installed together with the dependencies, so the cache holds them.
+    default: ''
   opam-disable-sandboxing:
     description: Passed to ocaml/setup-ocaml.
     default: 'true'
@@ -29,18 +33,40 @@ outputs:
 runs:
   using: composite
   steps:
-    # One step owns the key: restore and save must agree on it.
-    # hashFiles joins its arguments with newlines and splits them again, so one
-    # newline-separated input behaves like several arguments.
+    # One step owns the key: restore and save must agree on it. It also
+    # validates pins, so a bad line fails before any restore or install work.
     - name: Compute opam cache key
       id: key
       shell: bash
+      env:
+        PINS: ${{ inputs.pins }}
+        WITH_DOC: ${{ inputs.with-doc }}
+        WITH_DEV_SETUP: ${{ inputs.with-dev-setup }}
+        EXTRAS: ${{ inputs.extra-packages }}
+        OPAM_FILES_HASH: ${{ hashFiles('*.opam') }}
+        PREFIX: opam-${{ runner.os }}-${{ runner.arch }}-${{ inputs.ocaml-compiler }}-setup-ocaml-3.9.0-
       run: |
-        echo "prefix=opam-${{ runner.os }}-${{ runner.arch }}-${{ inputs.ocaml-compiler }}-setup-ocaml-3.9.0-" >> "$GITHUB_OUTPUT"
-        echo "key=opam-${{ runner.os }}-${{ runner.arch }}-${{ inputs.ocaml-compiler }}-setup-ocaml-3.9.0-${{ hashFiles(inputs.cache-key-files) }}" >> "$GITHUB_OUTPUT"
+        n=0
+        while read -r name url extra; do
+          n=$((n + 1))
+          if [[ -z "$name$url$extra" ]]; then continue; fi
+          if [[ -z "$url" || -n "$extra" ]]; then
+            echo "::error::pins line $n must be '<name> <url>' (two fields): $name $url $extra"
+            exit 1
+          fi
+        done <<< "$PINS"
 
+        # macOS has no sha256sum.
+        if command -v sha256sum > /dev/null; then sha=(sha256sum); else sha=(shasum -a 256); fi
+        digest="$(printf '%s\n' "$PINS" "$WITH_DOC" "$WITH_DEV_SETUP" "$EXTRAS" "$OPAM_FILES_HASH" | "${sha[@]}")"
+        echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
+        echo "key=$PREFIX${digest%% *}" >> "$GITHUB_OUTPUT"
+
+    # Windows restores fail: tar cannot recreate the Cygwin symlinks. There,
+    # setup-ocaml's own cache does the job and install always runs.
     - name: Load opam cache
       id: restore
+      if: runner.os != 'Windows'
       uses: actions/cache/restore@v4
       with:
         path: |
@@ -48,8 +74,6 @@ runs:
           ~/.opam
           _opam
           .opam-path
-          C:\cygwin
-          C:\.opam
         key: ${{ steps.key.outputs.key }}
         restore-keys: ${{ steps.key.outputs.prefix }}
 
@@ -61,13 +85,9 @@ runs:
         opam-disable-sandboxing: ${{ inputs.opam-disable-sandboxing }}
 
     - name: Get opam executable path
-      if: steps.restore.outputs.cache-matched-key == ''
+      if: runner.os != 'Windows' && steps.restore.outputs.cache-matched-key == ''
       shell: bash
-      run: |
-        opam_path="$(command -v opam)"
-        # GITHUB_PATH needs a native Windows path, not an MSYS one.
-        if [[ "$RUNNER_OS" == "Windows" ]]; then opam_path="$(cygpath -w "$opam_path")"; fi
-        echo "$opam_path" > .opam-path
+      run: command -v opam > .opam-path
 
     - name: Use cached opam environment
       if: steps.restore.outputs.cache-matched-key != ''
@@ -84,48 +104,38 @@ runs:
         echo "OPAMSOLVERTIMEOUT=600"               >> "$GITHUB_ENV"
         echo "OPAMYES=1"                           >> "$GITHUB_ENV"
         echo "CLICOLOR_FORCE=1"                    >> "$GITHUB_ENV"
-
-        if [[ "$RUNNER_OS" != "Windows" ]]; then
-          echo "OPAMROOT=$HOME/.opam" >> "$GITHUB_ENV"
-        else
-          echo "OPAMROOT=C:\\.opam" >> "$GITHUB_ENV"
-        fi
+        echo "OPAMROOT=$HOME/.opam"                >> "$GITHUB_ENV"
 
         OPAM_PATH="$(cat .opam-path)"
         chmod +x "$OPAM_PATH"
         dirname "$OPAM_PATH" >> "$GITHUB_PATH"
 
-        if [[ "$RUNNER_OS" == "Windows" ]]; then
-          fsutil behavior set symlinkEvaluation R2L:1 R2R:1
-
-          echo "HOME=$USERPROFILE"               >> "$GITHUB_ENV"
-          echo "MSYS=winsymlinks:native"         >> "$GITHUB_ENV"
-          echo "CYGWIN=winsymlinks:native"       >> "$GITHUB_ENV"
-          echo "BASH_ENV=C:\\cygwin\\bash_env"   >> "$GITHUB_ENV"
-
-          # OCaml binaries need the Cygwin DLLs on PATH.
-          echo "C:\\cygwin\\bin"        >> "$GITHUB_PATH"
-          echo "C:\\cygwin\\wrapperbin" >> "$GITHUB_PATH"
-        fi
-
     - name: Install opam dependencies
       if: steps.restore.outputs.cache-hit != 'true'
       shell: bash
       env:
-        INSTALL: ${{ inputs.install }}
+        PINS: ${{ inputs.pins }}
+        WITH_DOC: ${{ inputs.with-doc }}
+        WITH_DEV_SETUP: ${{ inputs.with-dev-setup }}
+        EXTRAS: ${{ inputs.extra-packages }}
+        STALE_RESTORE: ${{ steps.restore.outputs.cache-matched-key != '' }}
       run: |
-        # Windows downloads fail often enough to need retries.
-        attempts=1
-        if [[ "$RUNNER_OS" == "Windows" ]]; then attempts=3; fi
-        for i in $(seq "$attempts"); do
-          echo "Attempt $i of $attempts"
-          if bash -e -c "$INSTALL"; then exit 0; fi
-          sleep 10
-        done
-        exit 1
+        while read -r name url _; do
+          if [[ -z "$name" ]]; then continue; fi
+          opam pin add "$name" "$url" -yn
+        done <<< "$PINS"
+
+        # A stale prefix restore carries an old repository index.
+        if [[ "$STALE_RESTORE" == "true" ]]; then opam update; fi
+
+        flags=()
+        if [[ "$WITH_DOC" == "true" ]]; then flags+=(--with-doc); fi
+        if [[ "$WITH_DEV_SETUP" == "true" ]]; then flags+=(--with-dev-setup); fi
+        read -r -a extras <<< "$EXTRAS"
+        opam install . --deps-only --with-test "${flags[@]}" "${extras[@]}"
 
     - name: Save opam cache
-      if: steps.restore.outputs.cache-hit != 'true'
+      if: runner.os != 'Windows' && steps.restore.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4
       with:
         path: |
@@ -133,6 +143,4 @@ runs:
           ~/.opam
           _opam
           .opam-path
-          C:\cygwin
-          C:\.opam
         key: ${{ steps.key.outputs.key }}

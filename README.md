@@ -12,7 +12,11 @@ steps:
   - uses: ml-in-barcelona/gh-ci-action@v1
     with:
       ocaml-compiler: ${{ matrix.ocaml-compiler }}
-      install: make pin install
+      pins: |
+        my-lib https://github.com/me/my-lib.git#<sha>
+      with-doc: true
+      with-dev-setup: true
+      extra-packages: dune-release odoc-driver
 
   - uses: ml-in-barcelona/gh-ci-action/dune-cache@v1
     with:
@@ -26,8 +30,29 @@ steps:
 
 The root action restores the opam switch. When no cache matches, it runs
 `ocaml/setup-ocaml`. When the exact key misses (nothing cached, or only an
-older key matched), it runs `install` and saves the switch at once, before the
-build can fail.
+older key matched), it installs the dependencies of the `*.opam` files in the
+workspace root and saves the switch at once, before the build can fail:
+
+1. `opam pin add <name> <url> -yn` for each line of `pins`.
+2. `opam update`, only when an older key was restored (its repository index is
+   stale).
+3. `opam install . --deps-only --with-test`, plus `--with-doc`,
+   `--with-dev-setup` and `extra-packages` when set.
+
+The key holds the OS, architecture, compiler, `setup-ocaml` version, a hash of
+`pins`, `with-doc`, `with-dev-setup`, `extra-packages`, and the hash of
+`*.opam`. Nothing else changes it: editing a Makefile does not start a new
+switch.
+
+`pins` is an input because opam-repository rejects `pin-depends` in `.opam`
+files, so published packages cannot declare them. Each line is `<name> <url>`,
+two fields; the action fails and names the line otherwise. Pin to a commit
+(`url#sha`) so the key changes with the pin.
+
+On Windows the root action skips its own cache: `tar` cannot recreate the
+Cygwin symlinks on restore. There it always runs `setup-ocaml`, with its
+built-in cache, and the install. `setup-ocaml` sets `OPAMRETRIES` for
+downloads.
 
 `dune-cache/save` has no post step to rely on, so the caller picks when it runs.
 Use `if: ${{ !cancelled() }}` to keep the cache after a failed test. It trims
@@ -40,8 +65,10 @@ Root action:
 | Input | Default | Meaning |
 | --- | --- | --- |
 | `ocaml-compiler` | required | Compiler version for `setup-ocaml`. Part of the key. |
-| `install` | `make install` | Command that installs dependencies. Runs on an exact-key miss. Retried 3 times on Windows. |
-| `cache-key-files` | `*.opam`, `dune-project`, `Makefile` (one per line) | `hashFiles` patterns, one per line. |
+| `pins` | empty | One `<name> <url>` per line. Part of the key. |
+| `with-doc` | `false` | Adds `--with-doc`. Part of the key. |
+| `with-dev-setup` | `false` | Adds `--with-dev-setup`. Part of the key. |
+| `extra-packages` | empty | Space-separated packages installed with the dependencies. Part of the key. |
 | `opam-disable-sandboxing` | `true` | Passed to `setup-ocaml`. |
 
 Outputs: `cache-hit`, `cache-matched-key`.
