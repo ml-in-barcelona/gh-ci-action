@@ -41,9 +41,9 @@ repository root.
   so a failed build does not lose it.
 
 An older switch is restored only when OS, architecture, runner image name,
-compiler, `setup-ocaml` version and `opam-disable-sandboxing` match. The exact
-key also changes with the runner image version, `cache-period`, the other
-inputs and the hash of `*.opam`, `*.opam.locked` and `dune-project`.
+compiler and `setup-ocaml` version match. The exact key also changes with the
+runner image version, the month, the other inputs and the hash of `*.opam`,
+`*.opam.locked` and `dune-project`. Opam sandboxing is always disabled.
 
 A second call in the same job with the same compiler skips the restore,
 `setup-ocaml` and the save. Its `cache-hit` is `false`.
@@ -56,15 +56,12 @@ A second call in the same job with the same compiler skips the restore,
 | `with-doc` | `false` | Adds `--with-doc`. |
 | `with-dev-setup` | `false` | Adds `--with-dev-setup`. |
 | `extra-packages` | empty | Space-separated packages to install too. |
-| `opam-disable-sandboxing` | `true` | Passed to `setup-ocaml`. It is in the cache key, because the restored opam root keeps the setting. |
-| `cache-period` | `%Y-%m` | `date` format in the exact key. `%G-%V` refreshes weekly, empty never. |
 
 `pins` exists because opam-repository does not accept `pin-depends`. Pin to a
 commit (`url#sha`), so that a new commit gives a new key. A line without
 exactly two fields fails the action.
 
-Outputs: `cache-hit` (`true` when this call restored the exact key, else `false`),
-`cache-matched-key` (empty on a full miss).
+Output: `cache-hit` (`true` when this call restored the exact key, else `false`).
 
 ## Timings
 

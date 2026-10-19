@@ -21,21 +21,11 @@ inputs:
   extra-packages:
     description: Space-separated packages installed together with the dependencies, so the cache holds them.
     default: ''
-  opam-disable-sandboxing:
-    description: Passed to ocaml/setup-ocaml.
-    default: 'true'
-  cache-period:
-    description: |
-      `date` format whose output goes into the exact cache key. A new value gives a new key, so the next run restores the old switch, runs `opam update` and saves again. The default refreshes monthly; `%G-%V` refreshes weekly. Empty never refreshes.
-    default: '%Y-%m'
 
 outputs:
   cache-hit:
     description: "'true' when this call restored the exact opam cache key, else 'false'. A second call in the same job skips the restore and reports 'false'."
     value: ${{ steps.restore.outputs.cache-hit == 'true' && 'true' || 'false' }}
-  cache-matched-key:
-    description: Key of the restored opam cache. Empty on a full miss.
-    value: ${{ steps.restore.outputs.cache-matched-key }}
 
 runs:
   using: composite
@@ -50,8 +40,6 @@ runs:
         WITH_DEV_SETUP: ${{ inputs.with-dev-setup }}
         EXTRAS: ${{ inputs.extra-packages }}
         COMPILER: ${{ inputs.ocaml-compiler }}
-        SANDBOX: ${{ inputs.opam-disable-sandboxing }}
-        PERIOD: ${{ inputs.cache-period }}
         OPAM_FILES_HASH: ${{ hashFiles('*.opam', '*.opam.locked', 'dune-project') }}
       run: |
         while read -r name url extra; do
@@ -64,9 +52,9 @@ runs:
 
         image="${ImageOS:-$(. /etc/os-release 2>/dev/null; echo "${ID:-}-${VERSION_ID:-}")}"
         # Keep the version equal to the `uses:` line below.
-        prefix="opam-$RUNNER_OS-$RUNNER_ARCH-$image-$COMPILER-setup-ocaml-3.9.0-sandbox-$SANDBOX-"
+        prefix="opam-$RUNNER_OS-$RUNNER_ARCH-$image-$COMPILER-setup-ocaml-3.9.0-"
         if command -v sha256sum > /dev/null; then sha=(sha256sum); else sha=(shasum -a 256); fi
-        digest="$(printf '%s\n' "$PINS" "$WITH_TEST" "$WITH_DOC" "$WITH_DEV_SETUP" "$EXTRAS" "$OPAM_FILES_HASH" "${ImageVersion:-}" "$(date -u +"$PERIOD")" | "${sha[@]}")"
+        digest="$(printf '%s\n' "$PINS" "$WITH_TEST" "$WITH_DOC" "$WITH_DEV_SETUP" "$EXTRAS" "$OPAM_FILES_HASH" "${ImageVersion:-}" "$(date -u +%Y-%m)" | "${sha[@]}")"
         echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
         echo "key=$prefix${digest%% *}" >> "$GITHUB_OUTPUT"
 
@@ -101,7 +89,7 @@ runs:
       uses: ocaml/setup-ocaml@v3.9.0
       with:
         ocaml-compiler: ${{ inputs.ocaml-compiler }}
-        opam-disable-sandboxing: ${{ inputs.opam-disable-sandboxing }}
+        opam-disable-sandboxing: true
 
     - name: Record opam directory
       if: steps.restore.outputs.cache-matched-key == '' && steps.key.outputs.setup-done != 'true'
