@@ -110,7 +110,8 @@ runs:
         echo "CYGWIN=winsymlinks:native" >> "$GITHUB_ENV"
 
     # A second call in the same job must not restore over the tree the first
-    # call set up. C:\.opam holds the opam root and its Cygwin.
+    # call set up: on Windows that restore fails. C:\.opam holds the opam root
+    # and its Cygwin.
     - name: Load opam cache
       id: restore
       if: steps.key.outputs.setup-done != 'true'
@@ -121,7 +122,7 @@ runs:
           ~/.opam
           C:\.opam
           _opam
-          .opam-path
+          .opam-dir
         key: ${{ steps.key.outputs.key }}
         restore-keys: ${{ steps.key.outputs.prefix }}
 
@@ -133,14 +134,14 @@ runs:
         ocaml-compiler: ${{ inputs.ocaml-compiler }}
         opam-disable-sandboxing: ${{ inputs.opam-disable-sandboxing }}
 
-    - name: Get opam executable path
+    # The cache holds no PATH, so a restoring run needs to know where opam
+    # lives. On Windows the runner reads GITHUB_PATH, so it needs that form.
+    - name: Record opam directory
       if: steps.restore.outputs.cache-matched-key == '' && steps.key.outputs.setup-done != 'true'
       shell: bash
       run: |
-        opam_path="$(command -v opam)"
-        # GITHUB_PATH needs a native Windows path, not a Cygwin one.
-        if [[ "$RUNNER_OS" == "Windows" ]]; then opam_path="$(cygpath -w "$opam_path")"; fi
-        echo "$opam_path" > .opam-path
+        dir="$(dirname "$(command -v opam)")"
+        if [[ "$RUNNER_OS" == "Windows" ]]; then cygpath -w "$dir" > .opam-dir; else echo "$dir" > .opam-dir; fi
 
     - name: Use cached opam environment
       if: steps.restore.outputs.cache-matched-key != ''
@@ -159,23 +160,17 @@ runs:
         echo "OPAMYES=1"                           >> "$GITHUB_ENV"
         echo "CLICOLOR_FORCE=1"                    >> "$GITHUB_ENV"
 
-        OPAM_PATH="$(cat .opam-path)"
+        # HOME, MSYS and CYGWIN come from "Allow native symlinks".
+        OPAM_DIR="$(cat .opam-dir)"
         if [[ "$RUNNER_OS" == "Windows" ]]; then
-          echo "OPAMROOT=C:\\.opam"                  >> "$GITHUB_ENV"
-          OPAM_PATH="$(cygpath -u "$OPAM_PATH")"
+          echo 'OPAMROOT=C:\.opam'                           >> "$GITHUB_ENV"
+          echo 'BASH_ENV=C:\.opam\.cygwin\root\bash_env'     >> "$GITHUB_ENV"
+          echo "$OPAM_DIR"                                   >> "$GITHUB_PATH"
+          echo 'C:\.opam\.cygwin\root\bin'                   >> "$GITHUB_PATH"
         else
-          echo "OPAMROOT=$HOME/.opam"              >> "$GITHUB_ENV"
-        fi
-        chmod +x "$OPAM_PATH"
-        opam_dir="$(dirname "$OPAM_PATH")"
-        if [[ "$RUNNER_OS" == "Windows" ]]; then opam_dir="$(cygpath -w "$opam_dir")"; fi
-        echo "$opam_dir" >> "$GITHUB_PATH"
-
-        if [[ "$RUNNER_OS" == "Windows" ]]; then
-          # setup-ocaml puts its Cygwin inside the opam root. The `shell: bash`
-          # steps and the OCaml binaries need it first on PATH.
-          echo "BASH_ENV=C:\\.opam\\.cygwin\\root\\bash_env" >> "$GITHUB_ENV"
-          echo "C:\\.opam\\.cygwin\\root\\bin" >> "$GITHUB_PATH"
+          echo "OPAMROOT=$HOME/.opam"                        >> "$GITHUB_ENV"
+          chmod +x "$OPAM_DIR/opam"
+          echo "$OPAM_DIR"                                   >> "$GITHUB_PATH"
         fi
 
     - name: Remember OCaml setup
@@ -238,5 +233,5 @@ runs:
           ~/.opam
           C:\.opam
           _opam
-          .opam-path
+          .opam-dir
         key: ${{ steps.key.outputs.key }}

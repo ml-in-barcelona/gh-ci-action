@@ -49,13 +49,15 @@ the hash of `*.opam`, `*.opam.locked` and `dune-project`. A Makefile edit reuses
 the switch. A new image version or a new period restores the old switch and
 refreshes it with `opam update`.
 
-On Windows the cache also holds `C:\.opam`, which contains setup-ocaml's
-Cygwin. The action sets the native-symlink options before the restore and
-exports `OPAMROOT`, `BASH_ENV` and the Cygwin `PATH` after it.
+Windows is cached like the other OSes. The cache also holds `C:\.opam`, which
+contains setup-ocaml's Cygwin. The action sets the native-symlink options
+before the restore and exports `OPAMROOT`, `BASH_ENV` and the Cygwin `PATH`
+after it.
 
 If the same job calls the action again with the same compiler, the second call
 skips the restore, `setup-ocaml` and the save, because the first call already
-set up the environment. Its `cache-hit` is `false`.
+set up the environment. On Windows a second restore onto the populated tree
+would fail. Its `cache-hit` is `false`.
 
 | Input | Default | Meaning |
 | --- | --- | --- |

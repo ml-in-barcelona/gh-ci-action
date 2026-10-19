@@ -11,8 +11,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
-    name: ${{ matrix.os }}
+  save:
+    name: Save on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -52,7 +52,7 @@ jobs:
 
       # setup-ocaml already ran in this job, so the second call skips the
       # restore and the setup. It restores nothing, so it reports 'false'; the
-      # `reuse` job checks the exact hit.
+      # `restore` job checks the exact hit.
       - name: Setup again
         id: again
         uses: ./.action
@@ -78,10 +78,11 @@ jobs:
           opam exec -- dune trace commands --trace-file=trace.json | tee commands.txt
           test "$(grep -vc -e '-config' commands.txt)" = "0"
 
-  # A fresh runner restores the switch the `test` job saved.
-  reuse:
-    name: reuse ${{ matrix.os }}
-    needs: test
+  # A fresh runner restores the switch the `save` job saved, so this call must
+  # hit it exactly, skip setup-ocaml and still leave a working environment.
+  restore:
+    name: Restore on ${{ matrix.os }}
+    needs: save
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -111,6 +112,9 @@ jobs:
         env:
           ACTUAL: ${{ steps.setup.outputs.cache-hit }}
         run: test "$ACTUAL" = "true"
+
+      - name: Check the compiler
+        run: opam exec -- ocamlc -version
 
       - name: Build and test
         run: opam exec -- dune build @runtest
