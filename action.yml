@@ -24,11 +24,15 @@ inputs:
   opam-disable-sandboxing:
     description: Passed to ocaml/setup-ocaml.
     default: 'true'
+  cache-period:
+    description: |
+      `date` format whose output goes into the exact cache key. A new value gives a new key, so the next run restores the old switch, runs `opam update` and saves again. The default refreshes monthly; `%G-%V` refreshes weekly. Empty never refreshes.
+    default: '%Y-%m'
 
 outputs:
   cache-hit:
-    description: "'true' when the exact opam cache key was restored."
-    value: ${{ steps.restore.outputs.cache-hit }}
+    description: "'true' when the exact opam cache key was restored, else 'false'. Always 'false' on Windows."
+    value: ${{ steps.restore.outputs.cache-hit == 'true' && 'true' || 'false' }}
   cache-matched-key:
     description: Key of the restored opam cache. Empty on a full miss.
     value: ${{ steps.restore.outputs.cache-matched-key }}
@@ -38,6 +42,10 @@ runs:
   steps:
     # One step owns the key: restore and save must agree on it. It also
     # validates pins, so a bad line fails before any restore or install work.
+    # The prefix holds what makes a restored switch wrong (image family,
+    # compiler, sandbox setting). The hash holds what only makes it stale (image
+    # version, period, inputs, opam files), so a prefix restore plus `opam update`
+    # still saves time.
     - name: Compute opam cache key
       id: key
       shell: bash
@@ -47,8 +55,10 @@ runs:
         WITH_DOC: ${{ inputs.with-doc }}
         WITH_DEV_SETUP: ${{ inputs.with-dev-setup }}
         EXTRAS: ${{ inputs.extra-packages }}
-        OPAM_FILES_HASH: ${{ hashFiles('*.opam') }}
-        PREFIX: opam-${{ runner.os }}-${{ runner.arch }}-${{ inputs.ocaml-compiler }}-setup-ocaml-3.9.0-
+        COMPILER: ${{ inputs.ocaml-compiler }}
+        SANDBOX: ${{ inputs.opam-disable-sandboxing }}
+        PERIOD: ${{ inputs.cache-period }}
+        OPAM_FILES_HASH: ${{ hashFiles('*.opam', '*.opam.locked', 'dune-project') }}
       run: |
         n=0
         while read -r name url extra; do
@@ -60,14 +70,36 @@ runs:
           fi
         done <<< "$PINS"
 
+        # GitHub-hosted runners set ImageOS and ImageVersion; self-hosted ones
+        # fall back to the OS release.
+        if [[ -n "${ImageOS:-}" ]]; then
+          image="$ImageOS"
+          image_version="${ImageVersion:-}"
+        elif [[ -r /etc/os-release ]]; then
+          image="$(. /etc/os-release; echo "$ID-${VERSION_ID:-}")"
+          image_version=""
+        else
+          image="$(uname -sr | tr -c 'A-Za-z0-9.\n' -)"
+          image_version=""
+        fi
+
+        # setup-ocaml version: keep equal to the `uses:` line below.
+        prefix="opam-$RUNNER_OS-$RUNNER_ARCH-$image-$COMPILER-setup-ocaml-3.9.0-sandbox-$SANDBOX-"
         # macOS has no sha256sum.
         if command -v sha256sum > /dev/null; then sha=(sha256sum); else sha=(shasum -a 256); fi
-        digest="$(printf '%s\n' "$PINS" "$WITH_TEST" "$WITH_DOC" "$WITH_DEV_SETUP" "$EXTRAS" "$OPAM_FILES_HASH" | "${sha[@]}")"
-        echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
-        echo "key=$PREFIX${digest%% *}" >> "$GITHUB_OUTPUT"
+        digest="$(printf '%s\n' "$PINS" "$WITH_TEST" "$WITH_DOC" "$WITH_DEV_SETUP" "$EXTRAS" "$OPAM_FILES_HASH" "$image_version" "$(date -u +"$PERIOD")" | "${sha[@]}")"
+        echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+        echo "key=$prefix${digest%% *}" >> "$GITHUB_OUTPUT"
 
-    # Windows restores fail: tar cannot recreate the Cygwin symlinks. There,
-    # setup-ocaml's own cache does the job and install always runs.
+        # setup-ocaml exports its environment to later steps of the job, so a
+        # second call with the same compiler can skip it. A different compiler
+        # needs its own switch, so it still runs setup-ocaml.
+        if [[ "${GH_CI_OCAML_READY:-}" == "$COMPILER" ]]; then ready=true; else ready=false; fi
+        echo "setup-done=$ready" >> "$GITHUB_OUTPUT"
+
+    # Not on Windows: restores there failed, but only onto an existing
+    # C:\.opam tree. A restore on a fresh runner was never tried. setup-ocaml's
+    # own cache does the job there and the install always runs.
     - name: Load opam cache
       id: restore
       if: runner.os != 'Windows'
@@ -82,7 +114,8 @@ runs:
         restore-keys: ${{ steps.key.outputs.prefix }}
 
     - name: Use OCaml ${{ inputs.ocaml-compiler }}
-      if: steps.restore.outputs.cache-matched-key == ''
+      if: steps.restore.outputs.cache-matched-key == '' && steps.key.outputs.setup-done != 'true'
+      # Keep the version equal to `setup-ocaml-3.9.0` in the cache key above.
       uses: ocaml/setup-ocaml@v3.9.0
       with:
         ocaml-compiler: ${{ inputs.ocaml-compiler }}
@@ -97,10 +130,11 @@ runs:
       if: steps.restore.outputs.cache-matched-key != ''
       shell: bash
       run: |
-        # https://github.com/ocaml/setup-ocaml/blob/v3.4.6/packages/setup-ocaml/src/installer.ts
+        # https://github.com/ocaml/setup-ocaml/blob/v3.9.0/packages/setup-ocaml/src/installer.ts
         echo "OPAMCOLOR=always"                    >> "$GITHUB_ENV"
         echo "OPAMCONFIRMLEVEL=unsafe-yes"         >> "$GITHUB_ENV"
-        echo "OPAMDOWNLOADJOBS=4"                  >> "$GITHUB_ENV"
+        # os.availableParallelism() in setup-ocaml. macOS has no nproc.
+        echo "OPAMDOWNLOADJOBS=$(nproc 2> /dev/null || sysctl -n hw.ncpu)" >> "$GITHUB_ENV"
         echo "OPAMERRLOGLEN=0"                     >> "$GITHUB_ENV"
         echo "OPAMEXTERNALSOLVER=builtin-0install" >> "$GITHUB_ENV"
         echo "OPAMPRECISETRACKING=1"               >> "$GITHUB_ENV"
@@ -114,10 +148,18 @@ runs:
         chmod +x "$OPAM_PATH"
         dirname "$OPAM_PATH" >> "$GITHUB_PATH"
 
-    - name: Install opam dependencies
-      if: steps.restore.outputs.cache-hit != 'true'
+    - name: Remember OCaml setup
       shell: bash
       env:
+        COMPILER: ${{ inputs.ocaml-compiler }}
+      run: echo "GH_CI_OCAML_READY=$COMPILER" >> "$GITHUB_ENV"
+
+    # On an exact hit the switch is complete but the fresh VM lacks the system
+    # packages (depexts) its packages need, so only those are installed.
+    - name: Install opam dependencies
+      shell: bash
+      env:
+        CACHE_HIT: ${{ steps.restore.outputs.cache-hit }}
         PINS: ${{ inputs.pins }}
         WITH_TEST: ${{ inputs.with-test }}
         WITH_DOC: ${{ inputs.with-doc }}
@@ -125,6 +167,18 @@ runs:
         EXTRAS: ${{ inputs.extra-packages }}
         STALE_RESTORE: ${{ steps.restore.outputs.cache-matched-key != '' }}
       run: |
+        flags=()
+        if [[ "$WITH_TEST" == "true" ]]; then flags+=(--with-test); fi
+        if [[ "$WITH_DOC" == "true" ]]; then flags+=(--with-doc); fi
+        if [[ "$WITH_DEV_SETUP" == "true" ]]; then flags+=(--with-dev-setup); fi
+        read -r -a extras <<< "$EXTRAS"
+
+        # The pins are already in the restored switch.
+        if [[ "$CACHE_HIT" == "true" ]]; then
+          opam install . --deps-only --depext-only "${flags[@]}" "${extras[@]}"
+          exit 0
+        fi
+
         while read -r name url _; do
           if [[ -z "$name" ]]; then continue; fi
           opam pin add "$name" "$url" -yn
@@ -133,12 +187,14 @@ runs:
         # A stale prefix restore carries an old repository index.
         if [[ "$STALE_RESTORE" == "true" ]]; then opam update; fi
 
-        flags=()
-        if [[ "$WITH_TEST" == "true" ]]; then flags+=(--with-test); fi
-        if [[ "$WITH_DOC" == "true" ]]; then flags+=(--with-doc); fi
-        if [[ "$WITH_DEV_SETUP" == "true" ]]; then flags+=(--with-dev-setup); fi
-        read -r -a extras <<< "$EXTRAS"
         opam install . --deps-only "${flags[@]}" "${extras[@]}"
+
+    # Same cleanup as setup-ocaml before its own save: smaller cache.
+    - name: Clean opam root
+      if: runner.os != 'Windows' && steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        opam clean --all-switches --download-cache --logs --repo-cache --untracked --unused-repositories
 
     - name: Save opam cache
       if: runner.os != 'Windows' && steps.restore.outputs.cache-hit != 'true'

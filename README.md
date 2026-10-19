@@ -31,18 +31,29 @@ steps:
 Gives you an opam switch with the dependencies of the `*.opam` files in the
 repository root.
 
-- On an exact cache hit, it restores the switch.
+- On an exact cache hit, it restores the switch and installs the system
+  packages that the opam packages need (`opam install --depext-only`), because
+  a fresh VM does not have them.
 - Otherwise it restores an older switch and runs `opam update`, or runs
   `ocaml/setup-ocaml` when nothing matches. Then it runs `opam pin add` for
-  each pin and `opam install . --deps-only` with the flags below. It saves the
-  switch at once, so a failed build does not lose it.
+  each pin and `opam install . --deps-only` with the flags below. It runs
+  `opam clean` and saves the switch at once, so a failed build does not lose it.
 
-The cache key changes only with the OS, architecture, compiler, `setup-ocaml`
-version, the inputs below (except `opam-disable-sandboxing`) and the `*.opam`
-files. A Makefile edit reuses the switch.
+An older switch is restored only when these match: OS, architecture, runner
+image name (`ImageOS`, or the OS release on self-hosted runners), compiler,
+`setup-ocaml` version and `opam-disable-sandboxing`. The exact key also changes
+with the runner image version, the `cache-period`, the other inputs below and
+the hash of `*.opam`, `*.opam.locked` and `dune-project`. A Makefile edit reuses
+the switch. A new image version or a new period restores the old switch and
+refreshes it with `opam update`.
 
-On Windows, `tar` cannot restore the Cygwin symlinks, so the action always runs
-`setup-ocaml` (with its own cache) and the install.
+On Windows the action does not use its own cache. It runs `setup-ocaml` (with
+its own cache) and the install, and `cache-hit` is `false`. Restoring `~/.opam`
+with `actions/cache` failed there, but only onto an existing `C:\.opam` tree.
+A restore on a fresh runner was not tried.
+
+If the same job calls the action again with the same compiler, it skips
+`setup-ocaml`, because the first call already exported its environment.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
@@ -52,13 +63,14 @@ On Windows, `tar` cannot restore the Cygwin symlinks, so the action always runs
 | `with-doc` | `false` | Adds `--with-doc`. |
 | `with-dev-setup` | `false` | Adds `--with-dev-setup`. |
 | `extra-packages` | empty | Space-separated packages to install too. |
-| `opam-disable-sandboxing` | `true` | Passed to `setup-ocaml`. |
+| `opam-disable-sandboxing` | `true` | Passed to `setup-ocaml`. It is in the cache key, because the restored opam root keeps the setting. |
+| `cache-period` | `%Y-%m` | `date` format in the exact key. `%G-%V` refreshes weekly, empty never. |
 
 `pins` exists because opam-repository does not accept `pin-depends`. If a line
 does not have exactly two fields, the action fails and names that line. Pin to
 a commit (`url#sha`), so that a new commit gives a new key.
 
-Outputs: `cache-hit`, `cache-matched-key`.
+Outputs: `cache-hit` (`true` or `false`), `cache-matched-key` (empty on a full miss).
 
 ## dune-cache
 
