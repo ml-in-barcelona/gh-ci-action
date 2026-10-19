@@ -23,7 +23,7 @@ runs:
 
     - name: Load dune cache
       id: restore
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v6
       with:
         path: ${{ env.DUNE_CACHE_ROOT }}
         key: ${{ env.DUNE_CACHE_KEY }}
