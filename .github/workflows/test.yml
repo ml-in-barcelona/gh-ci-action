@@ -79,13 +79,12 @@ jobs:
 
       - run: cp .action/test/fixture/* .
 
-      # Same pins as the save job, from a command: the key must not change.
       - name: Setup
         id: setup
         uses: ./.action
         with:
           ocaml-compiler: 5.4.0
-          pins-command: echo "$OCHRE_PIN"
+          pins: ${{ env.OCHRE_PIN }}
 
       - name: Check the exact cache hit
         run: test "${{ steps.setup.outputs.cache-hit }}" = "true"

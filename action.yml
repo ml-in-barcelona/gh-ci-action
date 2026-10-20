@@ -9,9 +9,6 @@ inputs:
     description: |
       One "<name> <url>" per line, pinned with `opam pin add <name> <url> -yn`. Kept out of the .opam files because opam-repository rejects pin-depends.
     default: ''
-  pins-command:
-    description: Shell command that prints more pins in the `pins` format, such as `make -s pin-list`.
-    default: ''
   with-test:
     description: "'true' adds --with-test to the dependency install."
     default: 'true'
@@ -38,7 +35,6 @@ runs:
       shell: bash
       env:
         PINS: ${{ inputs.pins }}
-        PINS_COMMAND: ${{ inputs.pins-command }}
         OPTS: >-
           ${{ inputs.with-test == 'true' && '--with-test' || '' }}
           ${{ inputs.with-doc == 'true' && '--with-doc' || '' }}
@@ -51,9 +47,6 @@ runs:
         version="$(sed -n 's|^ *uses: ocaml/setup-ocaml@v\([0-9][0-9.]*[0-9]\).*|\1|p' "$GITHUB_ACTION_PATH/action.yml")"
         if [[ -z "$version" ]]; then echo "::error::no ocaml/setup-ocaml@v<version> in $GITHUB_ACTION_PATH/action.yml"; exit 1; fi
         prefix="opam-$RUNNER_OS-$RUNNER_ARCH-$image-$COMPILER-setup-ocaml-$version-"
-        if [[ -n "$PINS_COMMAND" ]]; then PINS+=$'\n'"$(bash -c "$PINS_COMMAND")"; fi
-        PINS="$(printf '%s\n' "$PINS" | tr -d '\r' | sed '/^[[:space:]]*$/d')"
-
         # A pin on a branch or tag gets new commits without a new pins line,
         # so the key hashes the commit each such ref points to now.
         refs=""
@@ -67,7 +60,6 @@ runs:
 
         if command -v sha256sum > /dev/null; then sha=(sha256sum); else sha=(shasum -a 256); fi
         digest="$(printf '%s\n' "$PINS" "$refs" "$OPTS" "$OPAM_FILES_HASH" "${ImageVersion:-}" "$(date -u +%Y-%m)" | "${sha[@]}")"
-        { echo 'pins<<GH_CI_PINS'; echo "$PINS"; echo GH_CI_PINS; } >> "$GITHUB_OUTPUT"
         echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
         echo "key=$prefix${digest%% *}" >> "$GITHUB_OUTPUT"
         echo "opts=${OPTS//$'\n'/ }" >> "$GITHUB_OUTPUT"
@@ -128,7 +120,7 @@ runs:
       shell: bash
       env:
         COMPILER: ${{ inputs.ocaml-compiler }}
-        PINS: ${{ steps.key.outputs.pins }}
+        PINS: ${{ inputs.pins }}
         OPTS: ${{ steps.key.outputs.opts }}
         AGAIN: ${{ steps.key.outputs.again }}
         HIT: ${{ steps.restore.outputs.cache-hit }}
