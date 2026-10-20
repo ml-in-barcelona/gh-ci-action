@@ -57,7 +57,7 @@ repository root.
 | `with-test` | `true` | Adds `--with-test`. |
 | `with-doc` | `false` | Adds `--with-doc`. |
 | `with-dev-setup` | `false` | Adds `--with-dev-setup`. |
-| `extra-packages` | empty | Space-separated packages to install too. |
+| `extra-packages` | empty | Space-separated packages, such as tools, installed after the dependencies. The `with-*` inputs do not apply to them. |
 
 Output: `cache-hit` (`true` when this call restored the exact key, else `false`).
 

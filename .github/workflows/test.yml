@@ -35,6 +35,10 @@ jobs:
         with:
           ocaml-compiler: 5.4.0
           pins: ${{ env.OCHRE_PIN }}
+          extra-packages: cppo
+
+      - name: Check the extra package is installed
+        run: opam exec -- cppo -version
 
       - uses: ./.action/dune-cache/load
 
@@ -49,6 +53,7 @@ jobs:
         with:
           ocaml-compiler: 5.4.0
           pins: ${{ env.OCHRE_PIN }}
+          extra-packages: cppo
 
       - name: Check the second call cache-hit value
         run: test "${{ steps.again.outputs.cache-hit }}" = "false"
@@ -86,8 +91,12 @@ jobs:
         with:
           ocaml-compiler: 5.4.0
           pins: ${{ env.OCHRE_PIN }}
+          extra-packages: cppo
 
       - name: Check the exact cache hit
         run: test "${{ steps.setup.outputs.cache-hit }}" = "true"
+
+      - name: Check the extra package is restored
+        run: opam exec -- cppo -version
 
       - run: opam exec -- dune build @runtest

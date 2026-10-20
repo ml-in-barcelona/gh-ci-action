@@ -19,7 +19,7 @@ inputs:
     description: "'true' adds --with-dev-setup to the dependency install."
     default: 'false'
   extra-packages:
-    description: Space-separated packages installed together with the dependencies, so the cache holds them.
+    description: Space-separated packages installed after the dependencies, without the --with-* flags, so the cache holds them.
     default: ''
 
 outputs:
@@ -39,7 +39,7 @@ runs:
           ${{ inputs.with-test == 'true' && '--with-test' || '' }}
           ${{ inputs.with-doc == 'true' && '--with-doc' || '' }}
           ${{ inputs.with-dev-setup == 'true' && '--with-dev-setup' || '' }}
-          ${{ inputs.extra-packages }}
+        EXTRAS: ${{ inputs.extra-packages }}
         COMPILER: ${{ inputs.ocaml-compiler }}
         OPAM_FILES_HASH: ${{ hashFiles('*.opam', '*.opam.locked', 'dune-project') }}
       run: |
@@ -48,10 +48,11 @@ runs:
         if [[ -z "$version" ]]; then echo "::error::no ocaml/setup-ocaml@v<version> in $GITHUB_ACTION_PATH/action.yml"; exit 1; fi
         prefix="opam-$RUNNER_OS-$RUNNER_ARCH-$image-$COMPILER-setup-ocaml-$version-"
         if command -v sha256sum > /dev/null; then sha=(sha256sum); else sha=(shasum -a 256); fi
-        digest="$(printf '%s\n' "$PINS" "$OPTS" "$OPAM_FILES_HASH" "${ImageVersion:-}" "$(date -u +%Y-%m)" | "${sha[@]}")"
+        digest="$(printf '%s\n' "$PINS" "$OPTS" "$EXTRAS" "$OPAM_FILES_HASH" "${ImageVersion:-}" "$(date -u +%Y-%m)" | "${sha[@]}")"
         echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
         echo "key=$prefix${digest%% *}" >> "$GITHUB_OUTPUT"
         echo "opts=${OPTS//$'\n'/ }" >> "$GITHUB_OUTPUT"
+        echo "extras=${EXTRAS//$'\n'/ }" >> "$GITHUB_OUTPUT"
         if [[ "${GH_CI_OCAML_READY:-}" == "$COMPILER" ]]; then echo "again=true" >> "$GITHUB_OUTPUT"; fi
 
     - name: Allow native symlinks
@@ -111,12 +112,14 @@ runs:
         COMPILER: ${{ inputs.ocaml-compiler }}
         PINS: ${{ inputs.pins }}
         OPTS: ${{ steps.key.outputs.opts }}
+        EXTRAS: ${{ steps.key.outputs.extras }}
         AGAIN: ${{ steps.key.outputs.again }}
         HIT: ${{ steps.restore.outputs.cache-hit }}
         MATCHED: ${{ steps.restore.outputs.cache-matched-key }}
       run: |
         echo "GH_CI_OCAML_READY=$COMPILER" >> "$GITHUB_ENV"
         read -r -a opts <<< "$OPTS"
+        read -r -a extras <<< "$EXTRAS"
 
         # The cache holds no PATH, so a restoring run reads opam's directory
         # from here. GITHUB_PATH needs the Windows form.
@@ -130,6 +133,7 @@ runs:
           # Empty apt lists on a fresh runner: opam only warns.
           if [[ "$RUNNER_OS" == "Linux" ]]; then opam update --depexts; fi
           opam install . --deps-only --depext-only "${opts[@]}"
+          if (( ${#extras[@]} )); then opam install --depext-only "${extras[@]}"; fi
           exit 0
         fi
 
@@ -144,6 +148,7 @@ runs:
 
         if [[ -n "$MATCHED" ]]; then opam update; fi
         opam install . --deps-only "${opts[@]}"
+        if (( ${#extras[@]} )); then opam install "${extras[@]}"; fi
         if [[ "$AGAIN" != "true" ]]; then
           opam clean --all-switches --download-cache --logs --repo-cache --untracked --unused-repositories
         fi
