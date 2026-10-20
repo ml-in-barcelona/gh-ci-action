@@ -47,8 +47,6 @@ runs:
         version="$(sed -n 's|^ *uses: ocaml/setup-ocaml@v\([0-9][0-9.]*[0-9]\).*|\1|p' "$GITHUB_ACTION_PATH/action.yml")"
         if [[ -z "$version" ]]; then echo "::error::no ocaml/setup-ocaml@v<version> in $GITHUB_ACTION_PATH/action.yml"; exit 1; fi
         prefix="opam-$RUNNER_OS-$RUNNER_ARCH-$image-$COMPILER-setup-ocaml-$version-"
-        # A pin on a branch or tag gets new commits without a new pins line,
-        # so the key hashes the commit each such ref points to now.
         refs=""
         while read -r _ url _; do
           if [[ "$url" != *://* && "$url" != git@* ]]; then continue; fi
@@ -154,7 +152,6 @@ runs:
         done <<< "$PINS"
 
         if [[ -n "$MATCHED" ]]; then opam update; fi
-        # query-json retried its Windows installs 3 times before this action.
         tries=1
         if [[ "$RUNNER_OS" == "Windows" ]]; then tries=3; fi
         for i in $(seq "$tries"); do
