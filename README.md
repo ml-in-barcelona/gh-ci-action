@@ -47,8 +47,9 @@ repository root.
 - Exact cache hit: restores the switch and installs the system packages its
   opam packages need.
 - Otherwise: restores an older switch and runs `opam update`, or runs
-  `ocaml/setup-ocaml` when nothing matches. Then it pins, runs
-  `opam install . --deps-only`, runs `opam clean` and saves the switch at once.
+  `ocaml/setup-ocaml` with its cache off when nothing matches. Then it pins,
+  runs `opam install . --deps-only`, runs `opam clean` and saves the switch at
+  once.
 
 | Input | Default | Meaning |
 | --- | --- | --- |

@@ -83,6 +83,8 @@ runs:
       with:
         ocaml-compiler: ${{ inputs.ocaml-compiler }}
         opam-disable-sandboxing: true
+        # This action saves the opam root itself; a second copy only fills the cache quota.
+        cache: false
 
     - name: Use cached opam environment
       if: steps.restore.outputs.cache-matched-key != ''
