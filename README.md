@@ -36,7 +36,6 @@ steps:
   - run: make test
 
   - uses: ml-in-barcelona/gh-ci-action/dune-cache/save@v1
-    if: ${{ !cancelled() }}
 ```
 
 ## Root action
@@ -54,6 +53,7 @@ repository root.
 | --- | --- | --- |
 | `ocaml-compiler` | required | Compiler version. |
 | `pins` | empty | One `<name> <url>` per line. |
+| `pins-command` | empty | Command that prints more pins, such as `make -s pin-list`. |
 | `with-test` | `true` | Adds `--with-test`. |
 | `with-doc` | `false` | Adds `--with-doc`. |
 | `with-dev-setup` | `false` | Adds `--with-dev-setup`. |
@@ -61,14 +61,20 @@ repository root.
 
 Output: `cache-hit` (`true` when this call restored the exact key, else `false`).
 
+A pin URL with a branch or tag, or with no `#ref`, can get new commits. The
+cache key includes the commit that ref points to now (`git ls-remote`), so a
+new commit rebuilds the switch. On Windows, the install runs up to 3 times.
+
 ## dune-cache
 
 `dune-cache/load` restores the dune cache.
 
 `dune-cache/save` saves the cache. Composite actions cannot run a step at job
-end, so add this step yourself. Use `if: ${{ !cancelled() }}` to save the cache
-when tests fail. It trims the cache to `max-size` (default `2GB`) and saves
-only when the cache grew by more than 1 MB.
+end, so add this step yourself. Keep the default `if` (success only): after a
+failed test, the cache holds its wrong output, and dune replays it in the next
+run without running the test again. It trims the cache to `max-size` (default
+`2GB`) and saves only when the cache grew by more than 1 MB. It does nothing
+when `dune-cache/load` did not run.
 
 ## Cram tests
 

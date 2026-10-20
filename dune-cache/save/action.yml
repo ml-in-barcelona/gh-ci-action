@@ -15,6 +15,10 @@ runs:
       env:
         MAX_SIZE: ${{ inputs.max-size }}
       run: |
+        if [[ -z "${DUNE_CACHE_ROOT:-}" ]]; then
+          echo "::notice::dune-cache/load did not run, so the dune cache is not saved."
+          exit 0
+        fi
         opam exec -- dune cache trim --size="$MAX_SIZE"
         kb="$(du -sk "$DUNE_CACHE_ROOT" | cut -f1)"
         echo "grown=$(( kb > DUNE_CACHE_KB_BEFORE + 1024 ))" >> "$GITHUB_OUTPUT"
