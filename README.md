@@ -72,8 +72,8 @@ new commit rebuilds the switch. On Windows, the install runs up to 3 times.
 end, so add this step yourself. Keep the default `if` (success only): after a
 failed test, the cache holds its wrong output, and dune replays it in the next
 run without running the test again. It trims the cache to `max-size` (default
-`2GB`) and saves only when the cache grew by more than 1 MB. It does nothing
-when `dune-cache/load` did not run.
+`2GB`) and saves only when the build added more than 1 MB to the cache,
+measured before the trim. It does nothing when `dune-cache/load` did not run.
 
 ## Cram tests
 
