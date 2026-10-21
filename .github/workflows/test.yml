@@ -45,7 +45,6 @@ jobs:
       - run: opam exec -- dune build @runtest
 
       - uses: ./.action/dune-cache/save
-        if: ${{ !cancelled() }}
 
       - name: Setup again
         id: again

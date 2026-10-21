@@ -47,8 +47,17 @@ runs:
         version="$(sed -n 's|^ *uses: ocaml/setup-ocaml@v\([0-9][0-9.]*[0-9]\).*|\1|p' "$GITHUB_ACTION_PATH/action.yml")"
         if [[ -z "$version" ]]; then echo "::error::no ocaml/setup-ocaml@v<version> in $GITHUB_ACTION_PATH/action.yml"; exit 1; fi
         prefix="opam-$RUNNER_OS-$RUNNER_ARCH-$image-$COMPILER-setup-ocaml-$version-"
+        refs=""
+        while read -r _ url _; do
+          if [[ "$url" != *://* && "$url" != git@* ]]; then continue; fi
+          repo="${url#git+}"
+          ref=HEAD
+          if [[ "$repo" == *#* ]]; then ref="${repo#*#}"; repo="${repo%%#*}"; fi
+          if [[ ! "$ref" =~ ^[0-9a-f]{40}$ ]]; then refs+="$(git ls-remote "$repo" "$ref")"$'\n'; fi
+        done <<< "$PINS"
+
         if command -v sha256sum > /dev/null; then sha=(sha256sum); else sha=(shasum -a 256); fi
-        digest="$(printf '%s\n' "$PINS" "$OPTS" "$EXTRAS" "$OPAM_FILES_HASH" "${ImageVersion:-}" "$(date -u +%Y-%m)" | "${sha[@]}")"
+        digest="$(printf '%s\n' "$PINS" "$refs" "$OPTS" "$EXTRAS" "$OPAM_FILES_HASH" "${ImageVersion:-}" "$(date -u +%Y-%m)" | "${sha[@]}")"
         echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
         echo "key=$prefix${digest%% *}" >> "$GITHUB_OUTPUT"
         echo "opts=${OPTS//$'\n'/ }" >> "$GITHUB_OUTPUT"
@@ -147,8 +156,13 @@ runs:
         done <<< "$PINS"
 
         if [[ -n "$MATCHED" ]]; then opam update; fi
-        opam install . --deps-only "${opts[@]}"
-        if (( ${#extras[@]} )); then opam install "${extras[@]}"; fi
+        tries=1
+        if [[ "$RUNNER_OS" == "Windows" ]]; then tries=3; fi
+        for i in $(seq "$tries"); do
+          if opam install . --deps-only "${opts[@]}" && { (( ! ${#extras[@]} )) || opam install "${extras[@]}"; }; then break; fi
+          if (( i == tries )); then exit 1; fi
+          sleep 10
+        done
         if [[ "$AGAIN" != "true" ]]; then
           opam clean --all-switches --download-cache --logs --repo-cache --untracked --unused-repositories
         fi
