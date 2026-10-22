@@ -161,7 +161,7 @@ runs:
         done <<< "$PINS"
 
         if [[ -n "$MATCHED" ]]; then
-          for name in $(opam pin list --short | tr -d '\r'); do
+          for name in $(opam pin list --short --color=never | tr -d '\r'); do
             if [[ "$pinned" != *" $name "* ]]; then opam pin remove "$name" -y; fi
           done
           opam update
@@ -171,11 +171,11 @@ runs:
           required=""
           if (( ${#projects[@]} )); then
             opam pin add . -yn
-            required="$(opam list --installed --required-by="$(IFS=,; echo "${projects[*]}")" "${opts[@]}" --short)"
+            required="$(opam list --installed --required-by="$(IFS=,; echo "${projects[*]}")" "${opts[@]}" --short --color=never)"
             opam pin remove "${projects[@]}" -yn
           fi
-          read -r -a wanted <<< "$({ echo "$required"; opam list --invariant --short; printf '%s\n' "${extras[@]%%[<>=!.]*}"; } | tr -d '\r' | sort -u | tr '\n' ' ')"
-          read -r -a roots <<< "$(opam list --roots --short | tr -d '\r' | sort | tr '\n' ' ')"
+          read -r -a wanted <<< "$({ echo "$required"; opam list --invariant --short --color=never; printf '%s\n' "${extras[@]%%[<>=!.]*}"; } | tr -d '\r' | sort -u | tr '\n' ' ')"
+          read -r -a roots <<< "$(opam list --roots --short --color=never | tr -d '\r' | sort | tr '\n' ' ')"
           if [[ "${roots[*]}" != "${wanted[*]}" ]]; then
             opam install --unset-root "${roots[@]}"
             opam install --set-root "${wanted[@]}" "${extras[@]}"
