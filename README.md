@@ -57,6 +57,7 @@ repository root.
 | `with-doc` | `false` | Adds `--with-doc`. |
 | `with-dev-setup` | `false` | Adds `--with-dev-setup`. |
 | `extra-packages` | empty | Space-separated packages, such as tools, installed after the dependencies. The `with-*` inputs do not apply to them. |
+| `depext-bypass` | empty | Space-separated system packages that opam treats as installed, such as `npm` when `actions/setup-node` provides it. |
 
 Output: `cache-hit` (`true` when this call restored the exact key, else `false`).
 
