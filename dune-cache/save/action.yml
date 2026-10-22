@@ -1,5 +1,5 @@
 name: Dune cache save
-description: Trim the dune cache and save it when it grew. Run after dune-cache/load and the build steps.
+description: When the dune cache grew, trim it and save it. Run after dune-cache/load and the build steps.
 
 inputs:
   max-size:
@@ -20,8 +20,9 @@ runs:
           exit 0
         fi
         kb="$(du -sk "$DUNE_CACHE_ROOT" | cut -f1)"
-        echo "grown=$(( kb > DUNE_CACHE_KB_BEFORE + 1024 ))" >> "$GITHUB_OUTPUT"
+        if (( kb <= DUNE_CACHE_KB_BEFORE + 1024 )); then exit 0; fi
         opam exec -- dune cache trim --size="$MAX_SIZE"
+        echo "grown=1" >> "$GITHUB_OUTPUT"
 
     - name: Save dune cache
       if: steps.trim.outputs.grown == '1'
