@@ -2,6 +2,7 @@ opam-version: "2.0"
 synopsis: "Fixture for gh-ci-action self-tests"
 maintainer: ["ml-in-barcelona"]
 authors: ["ml-in-barcelona"]
+license: "MIT"
 build: [
   ["dune" "build" "-p" name "-j" jobs]
 ]
