@@ -43,6 +43,9 @@ runs:
         COMPILER: ${{ inputs.ocaml-compiler }}
         OPAM_FILES_HASH: ${{ hashFiles('*.opam', '*.opam.locked', 'dune-project') }}
       run: |
+        echo "opts=$OPTS" >> "$GITHUB_OUTPUT"
+        echo "extras=${EXTRAS//$'\n'/ }" >> "$GITHUB_OUTPUT"
+        if [[ "${GH_CI_OCAML_READY:-}" == "$COMPILER" ]]; then echo "again=true" >> "$GITHUB_OUTPUT"; exit 0; fi
         image="${ImageOS:-$(. /etc/os-release 2>/dev/null; echo "${ID:-}-${VERSION_ID:-}")}"
         version="$(sed -n 's|^ *uses: ocaml/setup-ocaml@v\([0-9][0-9.]*[0-9]\).*|\1|p' "$GITHUB_ACTION_PATH/action.yml")"
         if [[ -z "$version" ]]; then echo "::error::no ocaml/setup-ocaml@v<version> in $GITHUB_ACTION_PATH/action.yml"; exit 1; fi
@@ -53,8 +56,7 @@ runs:
           repo="${url#git+}"
           ref=HEAD
           if [[ "$repo" == *#* ]]; then ref="${repo#*#}"; repo="${repo%%#*}"; fi
-          pats=("refs/heads/$ref" "refs/tags/$ref")
-          if [[ "$ref" == HEAD || "$ref" == refs/* ]]; then pats=("$ref"); fi
+          if [[ "$ref" == HEAD || "$ref" == refs/* ]]; then pats=("$ref"); else pats=("refs/heads/$ref" "refs/tags/$ref"); fi
           if [[ ! "$ref" =~ ^[0-9a-f]{40}$ ]]; then refs+="$(git ls-remote -- "$repo" "${pats[@]}" 2>/dev/null || echo "$ref")"$'\n'; fi
         done <<< "$PINS"
 
@@ -62,12 +64,9 @@ runs:
         digest="$(printf '%s\n' "$PINS" "$refs" "$OPTS" "$EXTRAS" "$OPAM_FILES_HASH" "$(date -u +%Y-%m)" | "${sha[@]}")"
         echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
         echo "key=$prefix${digest%% *}" >> "$GITHUB_OUTPUT"
-        echo "opts=${OPTS//$'\n'/ }" >> "$GITHUB_OUTPUT"
-        echo "extras=${EXTRAS//$'\n'/ }" >> "$GITHUB_OUTPUT"
-        if [[ "${GH_CI_OCAML_READY:-}" == "$COMPILER" ]]; then echo "again=true" >> "$GITHUB_OUTPUT"; fi
 
     - name: Allow native symlinks
-      if: runner.os == 'Windows'
+      if: runner.os == 'Windows' && steps.key.outputs.again != 'true'
       shell: bash
       run: |
         fsutil behavior set symlinkEvaluation R2L:1 R2R:1
@@ -100,7 +99,7 @@ runs:
       if: steps.restore.outputs.cache-matched-key != ''
       shell: bash
       run: |
-        # Same values as setup-ocaml v3.9.0 (packages/setup-ocaml/src/installer.ts).
+        # Same values as setup-ocaml (packages/setup-ocaml/src/installer.ts).
         echo "CLICOLOR_FORCE=1"                    >> "$GITHUB_ENV"
         echo "OPAMCOLOR=always"                    >> "$GITHUB_ENV"
         echo "OPAMCONFIRMLEVEL=unsafe-yes"         >> "$GITHUB_ENV"
@@ -136,11 +135,9 @@ runs:
 
         # The cache holds no PATH, so a restoring run reads opam's directory
         # from here. GITHUB_PATH needs the Windows form.
-        if [[ -z "$MATCHED" && "$AGAIN" != "true" ]]; then
-          dir="$(dirname "$(command -v opam)")"
-          if [[ "$RUNNER_OS" == "Windows" ]]; then dir="$(cygpath -w "$dir")"; fi
-          echo "$dir" > "$RUNNER_TOOL_CACHE/opam/.opam-dir"
-        fi
+        dir="$(dirname "$(command -v opam)")"
+        if [[ "$RUNNER_OS" == "Windows" ]]; then dir="$(cygpath -w "$dir")"; fi
+        echo "$dir" > "$RUNNER_TOOL_CACHE/opam/.opam-dir"
 
         if [[ "$HIT" == "true" ]]; then
           # Empty apt lists on a fresh runner: opam only warns.
@@ -165,7 +162,7 @@ runs:
           for name in $(opam pin list --short --color=never | tr -d '\r'); do
             if [[ "$pinned" != *" $name "* ]]; then opam pin remove "$name" -y; fi
           done
-          opam update
+          opam update --repositories
           shopt -s nullglob
           projects=(*.opam)
           projects=("${projects[@]%.opam}")
