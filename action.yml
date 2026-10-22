@@ -85,7 +85,6 @@ runs:
           ~/.opam
           C:\.opam
           _opam
-          .opam-dir
         key: ${{ steps.key.outputs.key }}
         restore-keys: ${{ steps.key.outputs.prefix }}
 
@@ -113,7 +112,7 @@ runs:
         echo "OPAMSOLVERTIMEOUT=600"               >> "$GITHUB_ENV"
         echo "OPAMYES=1"                           >> "$GITHUB_ENV"
 
-        cat .opam-dir >> "$GITHUB_PATH"
+        cat "$RUNNER_TOOL_CACHE/opam/.opam-dir" >> "$GITHUB_PATH"
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           echo 'OPAMROOT=C:\.opam'                       >> "$GITHUB_ENV"
           echo 'BASH_ENV=C:\.opam\.cygwin\root\bash_env' >> "$GITHUB_ENV"
@@ -140,7 +139,7 @@ runs:
         if [[ -z "$MATCHED" && "$AGAIN" != "true" ]]; then
           dir="$(dirname "$(command -v opam)")"
           if [[ "$RUNNER_OS" == "Windows" ]]; then dir="$(cygpath -w "$dir")"; fi
-          echo "$dir" > .opam-dir
+          echo "$dir" > "$RUNNER_TOOL_CACHE/opam/.opam-dir"
         fi
 
         if [[ "$HIT" == "true" ]]; then
@@ -204,5 +203,4 @@ runs:
           ~/.opam
           C:\.opam
           _opam
-          .opam-dir
         key: ${{ steps.key.outputs.key }}
