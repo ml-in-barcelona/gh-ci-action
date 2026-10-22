@@ -21,6 +21,9 @@ inputs:
   extra-packages:
     description: Space-separated packages installed after the dependencies, without the --with-* flags, so the cache holds them.
     default: ''
+  depext-bypass:
+    description: Space-separated system packages that opam treats as installed (`opam option depext-bypass`), for example npm when actions/setup-node provides it.
+    default: ''
 
 outputs:
   cache-hit:
@@ -128,10 +131,15 @@ runs:
         AGAIN: ${{ steps.key.outputs.again }}
         HIT: ${{ steps.restore.outputs.cache-hit }}
         MATCHED: ${{ steps.restore.outputs.cache-matched-key }}
+        BYPASS: ${{ inputs.depext-bypass }}
       run: |
         echo "GH_CI_OCAML_READY=$COMPILER" >> "$GITHUB_ENV"
         read -r -a opts <<< "$OPTS"
         read -r -a extras <<< "$EXTRAS"
+        read -r -a bypass <<< "$BYPASS"
+        list=""
+        for name in "${bypass[@]}"; do list+="\"$name\" "; done
+        opam option "depext-bypass=[$list]"
 
         # The cache holds no PATH, so a restoring run reads opam's directory
         # from here. GITHUB_PATH needs the Windows form.
