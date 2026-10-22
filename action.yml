@@ -146,6 +146,7 @@ runs:
           exit 0
         fi
 
+        pinned=" "
         while read -r name url extra; do
           if [[ -z "$name" ]]; then continue; fi
           if [[ -z "$url" || -n "$extra" ]]; then
@@ -153,13 +154,30 @@ runs:
             exit 1
           fi
           opam pin add "$name" "$url" -yn
+          pinned+="$name "
         done <<< "$PINS"
 
-        if [[ -n "$MATCHED" ]]; then opam update; fi
+        if [[ -n "$MATCHED" ]]; then
+          for name in $(opam pin list --short | tr -d '\r'); do
+            if [[ "$pinned" != *" $name "* ]]; then opam pin remove "$name" -y; fi
+          done
+          opam update
+          projects=(*.opam)
+          projects=("${projects[@]%.opam}")
+          opam pin add . -yn
+          read -r -a wanted <<< "$({ opam list --installed --required-by="$(IFS=,; echo "${projects[*]}")" "${opts[@]}" --short; opam list --invariant --short; printf '%s\n' "${extras[@]}"; } | tr -d '\r' | sort -u | tr '\n' ' ')"
+          read -r -a roots <<< "$(opam list --roots --short | tr -d '\r' | sort | tr '\n' ' ')"
+          opam pin remove "${projects[@]}" -yn
+          if [[ "${roots[*]}" != "${wanted[*]}" ]]; then
+            opam install --unset-root "${roots[@]}"
+            opam install --set-root "${wanted[@]}"
+            opam remove --auto-remove
+          fi
+        fi
         tries=1
         if [[ "$RUNNER_OS" == "Windows" ]]; then tries=3; fi
         for i in $(seq "$tries"); do
-          if opam install . --deps-only "${opts[@]}" && { (( ! ${#extras[@]} )) || opam install "${extras[@]}"; }; then break; fi
+          if { [[ -z "$MATCHED" ]] || opam upgrade; } && opam install . --deps-only "${opts[@]}" && { (( ! ${#extras[@]} )) || opam install "${extras[@]}"; }; then break; fi
           if (( i == tries )); then exit 1; fi
           sleep 10
         done
