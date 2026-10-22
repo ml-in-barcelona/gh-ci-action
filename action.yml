@@ -162,15 +162,20 @@ runs:
             if [[ "$pinned" != *" $name "* ]]; then opam pin remove "$name" -y; fi
           done
           opam update
+          shopt -s nullglob
           projects=(*.opam)
           projects=("${projects[@]%.opam}")
-          opam pin add . -yn
-          read -r -a wanted <<< "$({ opam list --installed --required-by="$(IFS=,; echo "${projects[*]}")" "${opts[@]}" --short; opam list --invariant --short; printf '%s\n' "${extras[@]}"; } | tr -d '\r' | sort -u | tr '\n' ' ')"
+          required=""
+          if (( ${#projects[@]} )); then
+            opam pin add . -yn
+            required="$(opam list --installed --required-by="$(IFS=,; echo "${projects[*]}")" "${opts[@]}" --short)"
+            opam pin remove "${projects[@]}" -yn
+          fi
+          read -r -a wanted <<< "$({ echo "$required"; opam list --invariant --short; printf '%s\n' "${extras[@]%%[<>=!.]*}"; } | tr -d '\r' | sort -u | tr '\n' ' ')"
           read -r -a roots <<< "$(opam list --roots --short | tr -d '\r' | sort | tr '\n' ' ')"
-          opam pin remove "${projects[@]}" -yn
           if [[ "${roots[*]}" != "${wanted[*]}" ]]; then
             opam install --unset-root "${roots[@]}"
-            opam install --set-root "${wanted[@]}"
+            opam install --set-root "${wanted[@]}" "${extras[@]}"
             opam remove --auto-remove
           fi
         fi
