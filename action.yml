@@ -59,7 +59,7 @@ runs:
         done <<< "$PINS"
 
         if command -v sha256sum > /dev/null; then sha=(sha256sum); else sha=(shasum -a 256); fi
-        digest="$(printf '%s\n' "$PINS" "$refs" "$OPTS" "$EXTRAS" "$OPAM_FILES_HASH" "${ImageVersion:-}" "$(date -u +%Y-%m)" | "${sha[@]}")"
+        digest="$(printf '%s\n' "$PINS" "$refs" "$OPTS" "$EXTRAS" "$OPAM_FILES_HASH" "$(date -u +%Y-%m)" | "${sha[@]}")"
         echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
         echo "key=$prefix${digest%% *}" >> "$GITHUB_OUTPUT"
         echo "opts=${OPTS//$'\n'/ }" >> "$GITHUB_OUTPUT"
@@ -101,9 +101,12 @@ runs:
       if: steps.restore.outputs.cache-matched-key != ''
       shell: bash
       run: |
-        # Same values as setup-ocaml v3.9.0 (src/installer.ts).
+        # Same values as setup-ocaml v3.9.0 (packages/setup-ocaml/src/installer.ts).
+        echo "CLICOLOR_FORCE=1"                    >> "$GITHUB_ENV"
+        echo "OPAMCOLOR=always"                    >> "$GITHUB_ENV"
         echo "OPAMCONFIRMLEVEL=unsafe-yes"         >> "$GITHUB_ENV"
         echo "OPAMDOWNLOADJOBS=$(nproc 2> /dev/null || sysctl -n hw.ncpu)" >> "$GITHUB_ENV"
+        echo "OPAMERRLOGLEN=0"                     >> "$GITHUB_ENV"
         echo "OPAMEXTERNALSOLVER=builtin-0install" >> "$GITHUB_ENV"
         echo "OPAMPRECISETRACKING=1"               >> "$GITHUB_ENV"
         echo "OPAMRETRIES=10"                      >> "$GITHUB_ENV"
