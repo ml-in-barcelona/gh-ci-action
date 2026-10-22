@@ -60,6 +60,9 @@ repository root.
 
 Output: `cache-hit` (`true` when this call restored the exact key, else `false`).
 
+One job uses one compiler. A second call with the same compiler reuses the switch.
+A second call with another compiler restores its cache over the first switch.
+
 A pin URL with a branch or tag, or with no `#ref`, can get new commits. The
 cache key includes the commit that ref points to now (`git ls-remote`), so a
 new commit rebuilds the switch. On Windows, the install runs up to 3 times.

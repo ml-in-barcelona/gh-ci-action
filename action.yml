@@ -99,9 +99,12 @@ runs:
       if: steps.restore.outputs.cache-matched-key != ''
       shell: bash
       run: |
-        # Same values as setup-ocaml v3.9.0 (src/installer.ts).
+        # Same values as setup-ocaml v3.9.0 (packages/setup-ocaml/src/installer.ts).
+        echo "CLICOLOR_FORCE=1"                    >> "$GITHUB_ENV"
+        echo "OPAMCOLOR=always"                    >> "$GITHUB_ENV"
         echo "OPAMCONFIRMLEVEL=unsafe-yes"         >> "$GITHUB_ENV"
         echo "OPAMDOWNLOADJOBS=$(nproc 2> /dev/null || sysctl -n hw.ncpu)" >> "$GITHUB_ENV"
+        echo "OPAMERRLOGLEN=0"                     >> "$GITHUB_ENV"
         echo "OPAMEXTERNALSOLVER=builtin-0install" >> "$GITHUB_ENV"
         echo "OPAMPRECISETRACKING=1"               >> "$GITHUB_ENV"
         echo "OPAMRETRIES=10"                      >> "$GITHUB_ENV"
