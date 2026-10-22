@@ -57,7 +57,7 @@ runs:
         done <<< "$PINS"
 
         if command -v sha256sum > /dev/null; then sha=(sha256sum); else sha=(shasum -a 256); fi
-        digest="$(printf '%s\n' "$PINS" "$refs" "$OPTS" "$EXTRAS" "$OPAM_FILES_HASH" "${ImageVersion:-}" "$(date -u +%Y-%m)" | "${sha[@]}")"
+        digest="$(printf '%s\n' "$PINS" "$refs" "$OPTS" "$EXTRAS" "$OPAM_FILES_HASH" "$(date -u +%Y-%m)" | "${sha[@]}")"
         echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
         echo "key=$prefix${digest%% *}" >> "$GITHUB_OUTPUT"
         echo "opts=${OPTS//$'\n'/ }" >> "$GITHUB_OUTPUT"
