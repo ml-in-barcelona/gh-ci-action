@@ -92,7 +92,7 @@ runs:
 
     - name: Use OCaml ${{ inputs.ocaml-compiler }}
       if: steps.key.outputs.again != 'true' && steps.restore.outputs.cache-matched-key == ''
-      uses: ocaml/setup-ocaml@v3.9.0
+      uses: ocaml/setup-ocaml@v3.9.1
       with:
         ocaml-compiler: ${{ inputs.ocaml-compiler }}
         opam-disable-sandboxing: true
