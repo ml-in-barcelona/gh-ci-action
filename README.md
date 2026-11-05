@@ -52,7 +52,7 @@ repository root.
 | Input | Default | Meaning |
 | --- | --- | --- |
 | `ocaml-compiler` | required | Compiler version. |
-| `pins` | empty | One `<name> <url>` per line. |
+| `pins` | empty | One `<name>[.<version>] <url>` per line. |
 | `with-test` | `true` | Adds `--with-test`. |
 | `with-doc` | `false` | Adds `--with-doc`. |
 | `with-dev-setup` | `false` | Adds `--with-dev-setup`. |

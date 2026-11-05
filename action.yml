@@ -7,7 +7,7 @@ inputs:
     required: true
   pins:
     description: |
-      One "<name> <url>" per line, pinned with `opam pin add <name> <url> -yn`. Kept out of the .opam files because opam-repository rejects pin-depends.
+      One "<name>[.<version>] <url>" per line, pinned with `opam pin add <name>[.<version>] <url> -yn`. Kept out of the .opam files because opam-repository rejects pin-depends.
     default: ''
   with-test:
     description: "'true' adds --with-test to the dependency install."
@@ -159,11 +159,11 @@ runs:
         while read -r name url extra; do
           if [[ -z "$name" ]]; then continue; fi
           if [[ -z "$url" || -n "$extra" ]]; then
-            echo "::error::pins line must be '<name> <url>': $name $url $extra"
+            echo "::error::pins line must be '<name>[.<version>] <url>': $name $url $extra"
             exit 1
           fi
           opam pin add "$name" "$url" -yn
-          pinned+="$name "
+          pinned+="${name%%.*} "
         done <<< "$PINS"
 
         if [[ -n "$MATCHED" ]]; then
