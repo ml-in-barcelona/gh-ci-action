@@ -16,6 +16,7 @@ defaults:
 
 env:
   OCHRE_PIN: ochre https://github.com/davesnx/ochre.git#f367ec7b372e20fddabc065201cf696564361abe
+  OCHRE_VERSIONED_PIN: ochre.0.1.0 https://github.com/davesnx/ochre.git#f367ec7b372e20fddabc065201cf696564361abe
 
 jobs:
   save:
@@ -101,3 +102,33 @@ jobs:
         run: opam exec -- cppo -version
 
       - run: opam exec -- dune build @runtest
+
+  keep-versioned-pin:
+    name: Keep versioned pin on ${{ matrix.os }}
+    needs: save
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: .action
+
+      - run: cp .action/test/fixture/* .
+
+      - name: Setup
+        id: setup
+        uses: ./.action
+        with:
+          ocaml-compiler: 5.4.0
+          pins: ${{ env.OCHRE_VERSIONED_PIN }}
+          extra-packages: cppo
+
+      - name: Check the key matched by prefix only
+        run: test "${{ steps.setup.outputs.cache-hit }}" = "false"
+
+      - name: Check the pin is kept
+        run: opam pin list --short --color=never | tr -d '\r' | grep -qx ochre
