@@ -132,3 +132,37 @@ jobs:
 
       - name: Check the pin is kept
         run: opam pin list --short --color=never | tr -d '\r' | grep -qx ochre
+
+  repositories-without-deps:
+    name: Repositories and no dependencies on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: .action
+
+      - run: cp .action/test/fixture/* .
+
+      # Same URL as the default, under another name, so the check below
+      # proves the input reached opam.
+      - name: Setup
+        uses: ./.action
+        with:
+          ocaml-compiler: 5.4.0
+          opam-repositories: |
+            upstream: https://opam.ocaml.org
+          install-deps: false
+          extra-packages: ocamlfind
+
+      - name: Check the repository list
+        run: opam repository list --short --color=never | tr -d '\r' | grep -qx upstream
+
+      - name: Check only the extra package is installed
+        run: |
+          opam exec -- ocamlfind list > /dev/null
+          test -z "$(opam list --installed --short --color=never dune | tr -d '\r')"

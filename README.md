@@ -51,7 +51,9 @@ repository root.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
-| `ocaml-compiler` | required | Compiler version. |
+| `ocaml-compiler` | required | Compiler version, or opam packages such as `ocaml-variants.5.4.0+ox,oxcaml-compiler.5.4.0-ox9`. |
+| `opam-repositories` | `default: https://opam.ocaml.org` | `name: url` lines passed to `ocaml/setup-ocaml`, first one first. Another list gets its own cache prefix. |
+| `install-deps` | `true` | `false` skips `opam install . --deps-only`; only `extra-packages` are installed. |
 | `pins` | empty | One `<name>[.<version>] <url>` per line. |
 | `with-test` | `true` | Adds `--with-test`. |
 | `with-doc` | `false` | Adds `--with-doc`. |
@@ -67,6 +69,22 @@ A second call with another compiler restores its cache over the first switch.
 A pin URL with a branch or tag, or with no `#ref`, can get new commits. The
 cache key includes the commit that ref points to now (`git ls-remote`), so a
 new commit rebuilds the switch. On Windows, the install runs up to 3 times.
+
+### OxCaml
+
+OxCaml comes from its own opam repository, and some dependencies of a project
+may not build there. Install only what the job needs:
+
+```yaml
+- uses: ml-in-barcelona/gh-ci-action@v1
+  with:
+    ocaml-compiler: ocaml-variants.5.4.0+ox,oxcaml-compiler.5.4.0-ox9
+    opam-repositories: |
+      ox: git+https://github.com/oxcaml/opam-repository.git
+      default: https://opam.ocaml.org
+    install-deps: false
+    extra-packages: dune alcotest
+```
 
 ## dune-cache
 
