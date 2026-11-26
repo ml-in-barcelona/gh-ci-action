@@ -5,6 +5,14 @@ inputs:
   ocaml-compiler:
     description: OCaml compiler version, passed to ocaml/setup-ocaml.
     required: true
+  opam-repositories:
+    description: |
+      opam repositories as "name: url" lines, passed to ocaml/setup-ocaml. Listed first take priority. Set it for a compiler outside opam-repository, such as OxCaml.
+    default: |
+      default: https://opam.ocaml.org
+  install-deps:
+    description: "'false' skips the dependencies of the *.opam files; only extra-packages are installed."
+    default: 'true'
   pins:
     description: |
       One "<name>[.<version>] <url>" per line, pinned with `opam pin add <name>[.<version>] <url> -yn`. Kept out of the .opam files because opam-repository rejects pin-depends.
@@ -44,15 +52,27 @@ runs:
           ${{ inputs.with-dev-setup == 'true' && '--with-dev-setup' || '' }}
         EXTRAS: ${{ inputs.extra-packages }}
         COMPILER: ${{ inputs.ocaml-compiler }}
+        REPOSITORIES: ${{ inputs.opam-repositories }}
+        DEPS: ${{ inputs.install-deps }}
         OPAM_FILES_HASH: ${{ hashFiles('*.opam', '*.opam.locked', 'dune-project') }}
       run: |
         echo "opts=$OPTS" >> "$GITHUB_OUTPUT"
+        echo "deps=$DEPS" >> "$GITHUB_OUTPUT"
         echo "extras=${EXTRAS//$'\n'/ }" >> "$GITHUB_OUTPUT"
         if [[ "${GH_CI_OCAML_READY:-}" == "$COMPILER" ]]; then echo "again=true" >> "$GITHUB_OUTPUT"; exit 0; fi
         image="${ImageOS:-$(. /etc/os-release 2>/dev/null; echo "${ID:-}-${VERSION_ID:-}")}"
         version="$(sed -n 's|^ *uses: ocaml/setup-ocaml@v\([0-9][0-9.]*[0-9]\).*|\1|p' "$GITHUB_ACTION_PATH/action.yml")"
         if [[ -z "$version" ]]; then echo "::error::no ocaml/setup-ocaml@v<version> in $GITHUB_ACTION_PATH/action.yml"; exit 1; fi
-        prefix="opam-$RUNNER_OS-$RUNNER_ARCH-$image-${COMPILER//[^A-Za-z0-9._+-]/_}-setup-ocaml-$version-"
+        if command -v sha256sum > /dev/null; then sha=(sha256sum); else sha=(shasum -a 256); fi
+        # Other repositories get their own prefix, so a fallback restore never
+        # brings a switch with another repository list. The default keeps the
+        # prefix it had before this input.
+        repos=""
+        if [[ "$(printf '%s' "$REPOSITORIES" | tr -d '[:space:]')" != "default:https://opam.ocaml.org" ]]; then
+          repos="$(printf '%s' "$REPOSITORIES" | "${sha[@]}")"
+          repos="repos-${repos:0:12}-"
+        fi
+        prefix="opam-$RUNNER_OS-$RUNNER_ARCH-$image-${COMPILER//[^A-Za-z0-9._+-]/_}-setup-ocaml-$version-$repos"
         refs=""
         while read -r _ url _; do
           if [[ "$url" != *://* && "$url" != git@* ]]; then continue; fi
@@ -63,8 +83,8 @@ runs:
           if [[ ! "$ref" =~ ^[0-9a-f]{40}$ ]]; then refs+="$(git ls-remote -- "$repo" "${pats[@]}" 2>/dev/null || echo "$ref")"$'\n'; fi
         done <<< "$PINS"
 
-        if command -v sha256sum > /dev/null; then sha=(sha256sum); else sha=(shasum -a 256); fi
-        digest="$(printf '%s\n' "$PINS" "$refs" "$OPTS" "$EXTRAS" "$OPAM_FILES_HASH" "$(date -u +%Y-%m)" | "${sha[@]}")"
+        if [[ "$DEPS" == "false" ]]; then deps="no-deps"; else deps="$OPAM_FILES_HASH"; fi
+        digest="$(printf '%s\n' "$PINS" "$refs" "$OPTS" "$EXTRAS" "$deps" "$(date -u +%Y-%m)" | "${sha[@]}")"
         echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
         echo "key=$prefix${digest%% *}" >> "$GITHUB_OUTPUT"
 
@@ -95,6 +115,7 @@ runs:
       uses: ocaml/setup-ocaml@v3.9.0
       with:
         ocaml-compiler: ${{ inputs.ocaml-compiler }}
+        opam-repositories: ${{ inputs.opam-repositories }}
         opam-disable-sandboxing: true
         cache: false
 
@@ -129,6 +150,7 @@ runs:
         OPTS: ${{ steps.key.outputs.opts }}
         EXTRAS: ${{ steps.key.outputs.extras }}
         AGAIN: ${{ steps.key.outputs.again }}
+        DEPS: ${{ steps.key.outputs.deps }}
         HIT: ${{ steps.restore.outputs.cache-hit }}
         MATCHED: ${{ steps.restore.outputs.cache-matched-key }}
         BYPASS: ${{ inputs.depext-bypass }}
@@ -150,7 +172,7 @@ runs:
         if [[ "$HIT" == "true" ]]; then
           # Empty apt lists on a fresh runner: opam only warns.
           if [[ "$RUNNER_OS" == "Linux" ]]; then opam update --depexts; fi
-          opam install . --deps-only --depext-only "${opts[@]}"
+          if [[ "$DEPS" != "false" ]]; then opam install . --deps-only --depext-only "${opts[@]}"; fi
           if (( ${#extras[@]} )); then opam install --depext-only "${extras[@]}"; fi
           exit 0
         fi
@@ -173,6 +195,7 @@ runs:
           opam update --repositories
           shopt -s nullglob
           projects=(*.opam)
+          if [[ "$DEPS" == "false" ]]; then projects=(); fi
           projects=("${projects[@]%.opam}")
           required=""
           if (( ${#projects[@]} )); then
@@ -191,7 +214,7 @@ runs:
         tries=1
         if [[ "$RUNNER_OS" == "Windows" ]]; then tries=3; fi
         for i in $(seq "$tries"); do
-          if opam install . --deps-only "${opts[@]}" && { (( ! ${#extras[@]} )) || opam install "${extras[@]}"; }; then break; fi
+          if { [[ "$DEPS" == "false" ]] || opam install . --deps-only "${opts[@]}"; } && { (( ! ${#extras[@]} )) || opam install "${extras[@]}"; }; then break; fi
           if (( i == tries )); then exit 1; fi
           sleep 10
         done
